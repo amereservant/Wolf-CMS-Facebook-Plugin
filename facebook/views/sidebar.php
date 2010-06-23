@@ -5,7 +5,7 @@
 ?>
 <p class="button">
     <a href="<?php echo get_url('plugin/facebook/settings/'); ?>" title="Settings">
-        <img src="<?php echo USER_AUTH_ROOT; ?>/images/settings.png" align="middle" alt="page icon" />
+        <img src="<?php echo FB_URL_ROOT; ?>images/settings.png" align="middle" alt="page icon" />
         <?php echo __('Settings'); ?>
     </a>
 </p>

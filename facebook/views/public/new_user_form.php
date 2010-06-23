@@ -55,11 +55,11 @@ $req = array();
     </p>
     <p>
         <input type="text" name="local_new_user_email" id="local_new_user_email" value="" size="22" /> 
-        <label for="local_new_user_email"> Email <em>(Will not be published.  Optional)</em></label>
+        <label for="local_new_user_email"> Email <em>(Will not be published.)</em></label>
     </p>
     <p>
         <input type="text" name="local_new_username" id="local_new_username" value="" size="22" /> 
-	    <label for="local_new_username"> Username <em>(Used for this site only. Optional)</em></label>
+	    <label for="local_new_username"> Username <em>(Used for this site only.)</em></label>
     </p>
     <p>
 	    <input type="password" name="local_new_password" id="local_new_password" value="" size="22" />
