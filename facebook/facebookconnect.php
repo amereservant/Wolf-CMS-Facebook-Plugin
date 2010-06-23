@@ -12,11 +12,17 @@ class FacebookConnect extends Facebook
     
     protected static $pdo;
     
+    private static $pdo_error = ' PDO ERROR: %3$s';
+    
+    private static $pdo_error_mode;
+    
+    protected static $last_insert;
+    
     public static $user_configures_acct;
     
     public static $enabled;
     
-    public static $session;
+    public static $usr_session;
     
     public static $user_info;
     
@@ -93,7 +99,7 @@ class FacebookConnect extends Facebook
         // Get FacebookConnect object
         $facebook = self::get_instance();
                 
-        if( $session = self::$session )
+        if( $session = self::$usr_session )
         {
             // Refresh to remove the query string from the URL
             if($_SERVER['REQUEST_METHOD'] === 'GET' && preg_match('#^session=(.*)#', 
@@ -185,7 +191,7 @@ class FacebookConnect extends Facebook
         }
         // Get user session details
         $session       = $facebook->getSession();
-        self::$session = $session;
+        self::$usr_session = $session;
         
         $logged_in = false;
         
@@ -281,10 +287,10 @@ class FacebookConnect extends Facebook
         }
         
         $facebook = self::get_instance();
-        self::$session = $facebook->getSession();
+        self::$usr_session = $facebook->getSession();
 
         // Session based API call
-        if( self::$session )
+        if( self::$usr_session )
         {
             // Try making remote call for user info
             try 
@@ -293,7 +299,7 @@ class FacebookConnect extends Facebook
             } catch (FacebookApiException $e) { /* Do something here if you like */ }
         }
         
-        if( !self::$user_info || !self::$session )
+        if( !self::$user_info || !self::$usr_session )
         {
             return false;
         }
@@ -316,7 +322,7 @@ class FacebookConnect extends Facebook
     */
     protected function check_user_exists($uid)
     {
-        self::check_db_object();
+        self::get_db_instance();
         
         if( !self::db_select_one('facebook_users', "uid='{$uid}'") ) 
         {
@@ -330,102 +336,520 @@ class FacebookConnect extends Facebook
         }
     }
     
-    protected function add_new_user($me)
+   /**
+    * Add New User
+    *
+    * This method is called by the Facebook Controller to add a new user.
+    * This method will use {@link add_facebook_user()} and {@link add_user_to_wolf()}
+    * to add the new user to both the `facebook_users` table and the Wolf `user` table.
+    *
+    * @param    array   $post   New user $_POST data if {@link $user_configures_acct}
+    *                           is set to `true`, otherwise this should be left 
+    *                           NULL and the {@link $user_info} property will be used.
+    * @return   array
+    * @access   public
+    * @static
+    */
+    public static function add_new_user($post=NULL)
     {
-        if( !is_array($me) || !isset($me['id'], $me['name']) )
+        $facebook = self::get_instance();
+        
+        // Get user's Facebook account info
+        if( !$info = self::get_user_info() )
         {
-            return false;
+            throw new Exception("Facebook user information couldn't be retrieved.");
         }
         
-        if( is_null(self::$user_exists) )
-        {
-            $this->check_user_exists($me['id']);
-        }
+        // Define part of the new Wolf user information
+        $user['created_on']     = time('Y-m-d H:i:s');
+        $user['created_by_id']  = 1;
+        $user['language']       = 'en';
+        $user['email']          = '';
         
-        try 
+        // Validate user data if it is a $_POST array
+        if( is_array($post) )
         {
-            if( self::$user_exists )
+             $valid = $facebook->validate_new_user_data($post);
+             if( $valid['error'] === true )
+             {
+                return $valid;
+             }
+             // Define user's details for Wolf user table
+             $user['name']      = ( !empty($post['fb_new_full_name']) ? $post['fb_new_full_name']:
+                                    $post['fb_new_first_name'] );
+             $user['email']     = ( !empty($post['local_new_user_email']) ? 
+                                    $post['local_new_user_email']:'');
+             $user['password']  = (empty($post['local_new_password']) ? 
+                                    $post['local_new_password']:self::generate_password());
+             $user['username']  = $post['local_new_username'];
+         }
+         // See if it should be an array based on $user_configures_acct
+         elseif( self::$user_configures_acct )
+         {
+            try
             {
-                throw new Exception("User already exists!  Please check your code.");
+                throw new Exception("`add_new_user` was called without being provided" . 
+                    " a POST array while `\$user_configures_acct` is set to TRUE.");
+            }
+            catch(Exception $e)
+            {
+                self::handleException($e);
+                return array( 'error' => true,
+                              'msg'   => "An error in the code was detected and your" . 
+                                         " account cannot be created at this time. " . 
+                                         "Please notify a system administrator of this error.");
+            }
+        }
+        else
+        {
+            // Generate user data fields - Facebook-only logins will be used for new users
+            $user['name']     = $info['name'];
+            $username         = mb_strtolower( str_replace(" ", "_", trim($info['name'])) );
+            $user['username'] = $username . mt_rand(1000, 999999);
+            $user['password'] = self::generate_password();
+        }
+        // Used to verify user doesn't already exist in `facebook_users` table
+        $user['uid'] = $post['fb_new_id'];
+        
+        // Try to add user to the Wolf user system
+        if( !$facebook->add_user_to_wolf($user) )
+        {
+            return array( 'error' => true,
+                          'msg'   => "There was an error creating your account.  " . 
+                                     "Please notify a system administrator of this error.");
+        }
+        
+        // Create Facebook user array
+        $fbuser['uid']          = $user['uid'];
+        $fbuser['wolf_uid']     = self::$last_insert['id'];
+        $fbuser['name']         = $user['name'];
+        $fbuser['first_name']   = $post['fb_new_first_name'];
+        $fbuser['last_name']    = $post['fb_new_last_name'];
+        $fbuser['link']         = $post['fb_new_link'];
+        $fbuser['gender']       = $post['fb_new_gender'];
+        
+        // Try to add user to the Facebook database table
+        try
+        {
+            if( !$facebook->add_facebook_user($fbuser) )
+            {
+                $return = array( 'error' => true,
+                              'msg'   => "There was an error creating your account. " . 
+                                         "Please notify a system administrator of this error.");
+                throw new Exception("User's wolf account was successfully created, but" . 
+                    " their Facebook account failed.  UID: {$fbuser['uid']} WOLFUID: " . 
+                    "{$fbuser['wolf_uid']} NAME: {$fbuser['name']}");
             }
         }
         catch(Exception $e)
         {
-            if(DEBUG === true) 
-            {
-                echo $e->getMessage();
-            }
-            else
-            {
-                error_log($e->getMessage());
-            }
-            return false;
+            self::handleException($e);
+            return $return;
         }
-        
-        $fields = array('uid', 'name', 'first_name', 'last_name', 'link', 'gender');
-        $me['uid'] = $me['id'];
-        foreach(array_diff_key($me, array_flip($fields)) as $key => $blah)
-        {
-            unset($me[$key]);
-        }
-        
-        return self::db_insert('facebook_users', $me);
+        // Return error false on success
+        return array( 'error' => false );
     }
-    
-    protected function add_user_to_wolf($me)
+        
+   /**
+    * Add New User To Facebook Database Table
+    *
+    * This method adds the user to the `facebook_users` table if they don't already
+    * exist.
+    *
+    * @param    void
+    * @return   bool        true on success, false on failure
+    * @access   protected
+    */
+    protected function add_facebook_user($user)
     {
-        if( !is_array($me) || !isset($me['id'], $me['name']) )
+        try 
         {
+            // Check if $user is valid (Partial check)
+            if( !is_array($user) || ( !isset($user['uid']) && !isset($user['id'])) )
+            {
+                throw new Exception("Invalid user array as param for `add_facebook_user` method.");
+            }
+            
+            $user['uid'] = ( isset($user['uid']) ? $user['uid'] : $user['id'] );
+            
+            // Check if user already exists
+            if( $this->check_user_exists($user['uid']) )
+            {
+                throw new Exception("Facebook user `{$user['name']}` with UID " .
+                    "`{$user['uid']}` already exists in the Facebook user table!");
+            }
+            
+            // Specify which keys we need for the database
+            $fields = array('uid', 'name', 'first_name', 'last_name', 'link', 'gender');
+            
+            /**
+             * Loop over the user info array and remove any values we don't need
+             * This also makes sure the keys are set and throws an exception if one isn't.
+             */
+            foreach( array_diff_key($user, array_flip($fields)) as $key => $blah )
+            {
+                if( !isset($user[$key]) )
+                {
+                    throw new Exception("The \$user array is missing key `{$key}`! " . 
+                        "New Facebook user account failed.");
+                }
+                unset($user[$key]);
+            }
+        }
+        catch(Exception $e)
+        {
+            self::handleException($e);
             return false;
         }
-        $row = self::db_select_one('facebook_users', "uid='{$me['id']}'", 'wolf_uid');
         
-        if( !is_null($row['wolf_uid']) )
-        {
-            throw new Exception("User `{$me['name']}` already exists in the Wolf User table.");
-            return false;
-        }
-        
-        $sql = "INSERT INTO ". TABLE_PREFIX ."";
+        // Try to insert user into the database
+        if( !self::db_insert('facebook_users', $user) ) { return false; }
     }
     
-    protected static function check_db_object()
+   /**
+    * Add User To Wolf User Table
+    *
+    * This method is used to add a new user to the Wolf `user` database table
+    * so the user's Facebook account will integrate with a Wolf CMS account.
+    *
+    * @param    array       $user   The user's Facebook information. {@link $user_info}
+    * @return   bool                true if success, false if failure
+    * @access   protected
+    * @throws   Exception
+    */
+    protected function add_user_to_wolf($user)
+    {
+        // Verify param is valid, throw exception if not
+        // ( Every field isn't checked, just some of the ones that should be present )
+        if( !is_array($user) || !isset($user['uid'], $user['username'], $user['password']) )
+        {
+            try 
+            {
+                throw new Exception("Method `add_user_to_wolf` was provided an invalid" . 
+                    " user data array.");
+            }
+            catch(Exception $e)
+            {
+                self::handleException($e);
+                return false;
+            }
+        }
+        
+        try 
+        {
+            // Check if user already has a Facebook account ( If so, this should've never been called )
+            if( $row = self::db_select_one('facebook_users', "uid='{$user['uid']}'") )
+            {
+                throw new Exception("User `{$user['name']}` with UID `{$user['uid']}` " .
+                    "already exists in the `facebook_users` table.");
+            }
+            
+            // Check if Wolf user already exists
+            if( $row = self::db_select_one('users', "username='{$user['username']}'") )
+            {
+                throw new Exception("User `{$user['username']}` already exists! " . 
+                    "`add_user_to_wolf()` shouldn't have been called.");
+            }
+            
+            // Encode user password using SHA1
+            $user['password'] = sha1($user['password']);
+            
+            // Remove values irrelevant to the Wolf user table
+            unset($user['uid']);
+            
+            // Try adding new user to Wolf user table
+            if( !self::db_insert('users', $user) )
+            {
+                throw new Exception("Add user to Wolf `users` table failed!");
+            }
+        }
+        catch(Exception $e)
+        {
+            self::handleException($e);
+            return false;
+        }
+        // If all passed, return true
+        return true;
+    }
+    
+   /**
+    * Validate New User Form Data
+    *
+    * This is used if {@link $user_configures_acct} is set to `true` to validate
+    * the data submitted by the new_user() method in the FacebookController class.
+    *
+    * It will return an array with an error message & error bool.
+    *
+    * @param    array   $post   The $_POST data array
+    * @return   array           Array with keys `error`(bool) to determine if it
+    *                           failed and `msg` containing error message if there
+    *                           was one.
+    * @access   protected
+    * @throws   Exception
+    */
+    protected function validate_new_user_data($post)
+    {
+        // Specify all keys that should be in the new_user_form $_POST data.
+        // (Used for verification)
+        $new_user_form_keys = array (
+            'fb_new_id', 'fb_new_full_name', 'fb_new_first_name', 'fb_new_last_name', 
+            'fb_new_gender', 'fb_new_link', 'local_new_use', 'local_new_user_email',
+            'local_new_username', 'local_new_password', 'local_new_password_confirm',
+            'existing_user_use', 'existing_user_username', 'existing_user_email',
+            'existing_user_password','fb_commit'
+         );
+        
+        // Specify required fields and their user-friendly names
+        $new_user_required_keys = array (
+            'fb_new_id'         => 'Facebook User ID', 
+            'fb_new_first_name' => 'First Name',
+            'local_new_use'     => 'Use Section User Info',
+            'existing_user_use' => 'Use Section Existing Local Account'
+        );
+        
+        // Add `Use This Section` keys to required keys if it is set to TRUE
+        if( (bool)$post['local_new_use'] )
+        {
+            $other_keys = array (
+                'local_new_user_email'       => 'Email',
+                'local_new_password'         => 'Password',
+                'local_new_password_confirm' => 'Password Confirmation',
+                'local_new_username'         => 'Username'
+            );
+            $new_user_required_keys = array_merge($new_user_required_keys, $other_keys);
+        }
+        
+        if( (bool)$post['existing_user_use'] )
+        {
+            // We test this here since only one is required
+            if( empty($post['existing_user_username']) && empty($post['existing_user_email']) )
+            {
+                $return['error'] = true;
+                $return['msg']   = "`Use Existing Account` is set to True, but you" . 
+                    " did not specify an email address or username!";
+                return $return;
+            }
+            
+            $other_keys = array();
+            if( !empty($post['existing_user_username']) )
+            {
+                $other_keys['existing_user_username'] = 'Existing Username';
+            }
+            
+            if( !empty($post['existing_user_email']) )
+            {
+                $other_keys['existing_user_email'] = 'Existing User Email';
+            }
+            $other_keys['existing_user_password'] = 'Existing User Password';
+                
+                
+        /**
+         * Check if ONLY and ALL of the correct keys are present in the $_POST data
+         * array_keys_match() function is defined in index.php.
+         * Perhaps add 'write-data-to-file-on-fail' to this part so user data isn't lost.
+         */
+        if( !array_keys_match($post, array_flip($new_user_form_keys)) )
+        {
+            try
+            {
+                // Throw exception for developer/server admin
+                throw new Exception('$_POST array keys do not match the form keys' . 
+                    ' defined by the `$new_user_form_keys` variable.');
+            }
+            catch(Exception $e)
+            {
+                self::handleException($e);
+            }
+            $return['error'] = true;
+            $return['msg']   = "Submitted data doesn't appear to be valid. ";
+            $return['msg']  .= "If the problem persists, please notify an administrator.";
+            return $return;
+        }
+        
+        $empties   = array();
+        $are_empties    = false;
+        
+        // Check if required fields are empty
+        foreach($new_user_required_keys as $key => $val)
+        {
+            if( empty($post[$key]) )
+            {
+                $empties[] = "'$val'";
+                $are_empties = true;
+            }
+        }
+        
+        // Form error message with all empty values
+        if( $are_empties ) 
+        {  
+            $return['error'] = true;
+            $return['msg']   = "The fields " . implode(", ", $empties) .
+                " cannot be empty!  Please correct these and try again.";
+            return $return;
+        }
+        
+        // Check if passwords match
+        if( $_POST['password'] !== $_POST['password_confirm'] )
+        {
+            $return['error'] = true;
+            $return['msg']   = "Passwords do not match!";
+            return $return;
+        }
+        return $return['error'] = false;
+    }
+    
+   /**
+    * Validate Existing Wolf User Account
+    *
+    * This is used to validate a Wolf user account username/password.
+    * This is used during creating a new account {@link add_new_user()} when a
+    * user wants to add an existing Wolf account to a new Facebook login.
+    *
+    * @param    array   $user   Array with username and password
+    * @return   bool            True if valid, false if not
+    * @access   private
+    */
+    private function verify_wolf_user($user=array())
+    {
+        try
+        {
+            if(!isset($user['password'], $user['username']) )
+            {
+                throw new Exception("Both `password` and `username` keys were not set!");
+            }
+            
+            if( !self::db_select('user', "username='{$user['username']}' AND password='" . 
+                sha1($user['password']) . "'") )
+            {
+                throw new Exception("User `{$user['username']}` failed to provide " . 
+                    "a valid login.");
+            }
+        }
+        catch(Exception $e)
+        {
+            self::handleException($e);
+            return false;
+        }
+        return true;
+    }
+    
+    private function login_wolf_user($user)
+    {
+        try
+        {
+            if( empty($user) )
+            {
+                throw new Exception("Param for `login_wolf_user` cannot be empty!");
+            }
+            // Attempt to find user
+            $user = User::findBy('id', $user);
+            if( !$user instanceof User )
+            {
+                throw new Exception("User could not be found!");
+            }
+        }
+        catch(Exception $e)
+        {
+            self::handleException($e);
+            return false;
+        }
+        
+        // Add new login time
+        $user->last_login = date('Y-m-d H:i:s');
+        $user->save();
+        
+        if (self::$cookieSupport) 
+        {
+            $time = $_SERVER['REQUEST_TIME'] + self::COOKIE_LIFE;
+            
+            setcookie(self::COOKIE_KEY, self::bakeUserCookie($time, $user->username), 
+                $time, '/', null, 
+                (isset($_ENV['SERVER_PROTOCOL']) && ((strpos($_ENV['SERVER_PROTOCOL'],'https') || strpos($_ENV['SERVER_PROTOCOL'],'HTTPS')))));
+        }
+    //////////////////////////   STOPPED HERE ////////////////////////////////
+    protected static function get_db_instance()
     {
         if( !is_object( self::$pdo ) )
         {
             self::$pdo = Record::getConnection();
         }
+        self::$pdo_error_mode = self::$pdo->getAttribute(PDO::ATTR_ERRMODE);
+        return self::$pdo;
     }
     
     public static function db_insert($table, $data = array())
     {
-        self::check_db_object();
+        $pdo = self::get_db_instance();
+        
+       /**
+        * Determine if extra check measures should be taken if PDO error mode 
+        * isn't Exception.  A fatal error will be thrown if we don't.
+        */
+        $check = self::$pdo_error_mode !== PDO::ERRMODE_EXCEPTION;
         
         if( empty($table) || count($data) < 1 )
         {
             return false;
         }
         
+        // Form prepared statement with bind params
         $sql = sprintf("INSERT INTO ". TABLE_PREFIX ."%s (%s) VALUES ('%s')",  
             $table,
             implode(", ", array_keys($data)),
-            implode("', '", $data));
+            ":" . implode(", :", array_keys($data)));
         
-        if( self::$pdo->execute($sql) )
+        // Try to prepare statement and bind params
+        try
         {
-            self::$last_insert['id'] = self::$pdo->lastInsertId();
-            self::$last_insert['rows'] = self::$pdo->rowCount();
-            return true;
+            if( !$stmt = self::$pdo->prepare($sql) && $check )
+            {
+                throw new Exception( "Insert data failed. ". 
+                    vsprintf(self::$pdo_error, $stmt->errorInfo()) );
+            }
+            
+            // Loop over each value and bind it
+            foreach( $data as $key => $val )
+            {
+                // Break loop if bindParam fails to avoid fatal errors
+                if( !$stmt->bindParam(':' . $key, $val) )
+                {
+                    break;
+                }
+            }
         }
-        else
+        catch(Exception $e)
         {
+            self::handleException($e);
+            return false;
+        }
+        
+        // Try to execute the statement
+        try
+        {
+            if( $stmt->execute() )
+            {
+                self::$last_insert['id'] = self::$pdo->lastInsertId();
+                self::$last_insert['rows'] = self::$pdo->rowCount();
+                return true;
+            }
+            else
+            {
+                // Throw new exception with the error message
+                $error = "Database INSERT into `$table` failed! " . 
+                    vsprintf(self::$pdo_error, self::$pdo->errorInfo());
+                throw new Exception($error);
+            }
+        }
+        catch(Exception $e)
+        {
+            self::handleException($e);
             return false;
         }
     }
     
     protected static function db_select($table, $where=null, $col=null)
     {
-        self::check_db_object();
+        self::get_db_instance();
         
         $sql = sprintf("SELECT %s FROM ". TABLE_PREFIX ."%s%s",
             empty($col) ? "*":$col,
@@ -435,6 +859,18 @@ class FacebookConnect extends Facebook
         $stmt->execute();
         return $stmt;
     }
+    
+    protected static function db_prepared_select($format, $params)
+    {
+        self::get_db_instance();
+        try
+        {    
+            if( !self::$pdo->prepare($format) )
+            {
+                throw new Exception("The prepared statement failed!  Check the " .
+                    "`\$format` parameter.");
+            }
+            
     
     public static function db_select_one($table, $where, $col=null)
     {
@@ -503,5 +939,27 @@ class FacebookConnect extends Facebook
         session_destroy();
         
         redirect(URL_PUBLIC);
+    }
+    
+    public static function generate_password( $length=10 )
+    {
+        $val = '';
+        for ($i=0; $i<$length; $i++) {
+            $d=rand(1,30)%2;
+            $val .= $d ? (rand(10,99)%2 ? mb_strtolower(chr(rand(65,90))):chr(rand(65,90))) : chr(rand(48,57));
+        }
+    }
+    
+    private static function handleException($e)
+    {
+        if(DEBUG === true) 
+        {
+            echo $e->getMessage();
+        }
+        else
+        {
+            error_log($e->getMessage());
+        }
+        return false;
     }
 }
