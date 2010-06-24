@@ -6,8 +6,6 @@ class FacebookConnect extends Facebook
 {
     protected static $fb_instance;
     
-    protected static $user_exists = null;
-    
     protected static $uid;
     
     protected static $pdo;
@@ -25,6 +23,13 @@ class FacebookConnect extends Facebook
     public static $usr_session;
     
     public static $user_info;
+    
+    public static $new_user_form_keys = array (
+        'fb_new_id', 'fb_new_full_name', 'fb_new_first_name', 'fb_new_last_name', 
+        'fb_new_gender', 'fb_new_link', 'local_new_use', 'local_new_user_email',
+        'local_new_username', 'local_new_password', 'local_new_password_confirm',
+        'existing_user_use', 'existing_user_username', 'existing_user_email',
+        'existing_user_password','fb_commit');
     
     public function __construct($array)
     {
@@ -87,18 +92,26 @@ class FacebookConnect extends Facebook
     */    
     public static function fb_login()
     {
+        // Get FacebookConnect object
+        $facebook = self::get_instance();
+        
+        // Check if Facebook Login is enabled
+        if( !self::$enabled )
+        {
+            return false;
+        }
+        
         // Check if user is logged in
         $status = self::is_logged_in();
-        
+
         // Check for an error ( means facebook login is disabled ) and return results
         if( $status['error'] === true )
         {
             return $status;
         }
         
-        // Get FacebookConnect object
-        $facebook = self::get_instance();
-                
+        $logged_in = $status['logged_in'];
+        
         if( $session = self::$usr_session )
         {
             // Refresh to remove the query string from the URL
@@ -108,7 +121,7 @@ class FacebookConnect extends Facebook
                 redirect(URL_PUBLIC);
             }
         }
-        
+
         // Make sure a UserID has been set
         if( self::$uid )
         {
@@ -122,14 +135,12 @@ class FacebookConnect extends Facebook
                 if( self::$user_configures_acct )
                 {
                     // Send user to new user account details view
-                    redirect(get_url('new_user') . '/' . URL_SUFFIX);
+                    redirect(get_url('new_user') . URL_SUFFIX);
                 }
                 else
                 {
-                    // Add user to Wolf's user system so it is integrated
-         
-/** FIX THIS - NEED A METHOD FOR AUTO-ADD **/
-                    $facebook->add_user_to_wolf();
+                    // Add user to Local login system
+                    self::add_new_user();
                 }
             }
         }
@@ -181,7 +192,7 @@ class FacebookConnect extends Facebook
     {
         // Get FacebookConnect object
         $facebook = self::get_instance();
-        
+
         // Check if Facebook login is enabled
         if( !self::$enabled ) 
         {
@@ -190,9 +201,9 @@ class FacebookConnect extends Facebook
             return $return;
         }
         // Get user session details
-        $session       = $facebook->getSession();
+        $session           = $facebook->getSession();
         self::$usr_session = $session;
-        
+
         $logged_in = false;
         
         if($session)
@@ -225,6 +236,11 @@ class FacebookConnect extends Facebook
         } 
         else 
         { 
+            if( !AuthUser::isLoggedIn() )
+            {
+                $id = self::db_select_one('facebook_users', "uid='". self::$uid ."'", 'wolf_uid');
+                if( $id ) { $facebook->login_wolf_user($id['wolf_uid']); }
+            }
             $return['error']     = false;
             $return['logged_in'] = true;
             return $return; 
@@ -248,6 +264,8 @@ class FacebookConnect extends Facebook
         {
             // Destory session 
             $this->setSession(null, $this->useCookieSupport());
+            // Log the user out
+            self::user_logout();
             return true;
         }
         else
@@ -256,6 +274,31 @@ class FacebookConnect extends Facebook
         }
     }
    
+   /**
+    * Get Cookie/Session Expiration Time
+    *
+    * This returns the cookie expiration time based on the session data from
+    * Facebook.  The user's Wolf account cookie will be set to this instead of
+    * the value defined in the AuthUser class.
+    *
+    * @param    void
+    * @return   mixed       (int)UNIX timestamp for when the cookie expires,
+    *                       (bool) false on failure
+    * @access   private
+    */
+    private function get_cookie_expiration_time()
+    {
+        $session = $this->getSession();
+        if( !is_array($session) ) 
+        { 
+            return false;
+        }
+        else
+        {
+            return $session['expires'];
+        }
+    }
+    
    /**
     * Get User Info
     *
@@ -280,6 +323,7 @@ class FacebookConnect extends Facebook
         {
             return false;
         }
+
         // Return data in the $user_info property if remote call isn't required
         if( self::$user_info && !$always_make_remote_call )
         {
@@ -312,26 +356,32 @@ class FacebookConnect extends Facebook
    /**
     * Check if user exists in database
     *
-    * This method checks if the user has been added to the 'facebook_users' table
-    * or not.  This method doesn't check if the user has been added as a user to
-    * the Wolf CMS user table.
+    * This method checks if the user has already exists in the 'facebook_users' table
+    * or the Wolf `user` table.  
     *
-    * @param    int     $uid    The userID for the user to check
-    * @return   bool            true if they do exist, false otherwise
+    * @param    string      $username   If testing a facebook user, this will be the
+    *                                   user id, for a wolf user, it will be the username
+    * @param    string      $usertbl    Either 'facebook' or 'wolf' to determine
+    *                                   which table should be checked.
+    * @return   bool                    true if they do exist, false otherwise
     * @access   protected
     */
-    protected function check_user_exists($uid)
+    protected function check_user_exists($user, $usertbl='facebook')
     {
         self::get_db_instance();
         
-        if( !self::db_select_one('facebook_users', "uid='{$uid}'") ) 
+        // Determine which table we're checking
+        $table = ($usertbl === 'facebook' ? 'facebook_users':'user');
+        
+        // Determine the correct "where" statement
+        $where = ($usertbl === 'facebook' ? "uid='{$user}'" : "username='{$user}'");
+        
+        if( !self::db_select_one($table, $where) ) 
         {
-            self::$user_exists = false;
             return false;
         } 
         else 
         {
-            self::$user_exists = true;
             return true;
         }
     }
@@ -369,23 +419,44 @@ class FacebookConnect extends Facebook
         // Validate user data if it is a $_POST array
         if( is_array($post) )
         {
-             $valid = $facebook->validate_new_user_data($post);
-             if( $valid['error'] === true )
-             {
+            // Validate $_POST array
+            $valid = $facebook->validate_new_user_data($post);
+            if( $valid['error'] === true )
+            {
                 return $valid;
-             }
-             // Define user's details for Wolf user table
-             $user['name']      = ( !empty($post['fb_new_full_name']) ? $post['fb_new_full_name']:
-                                    $post['fb_new_first_name'] );
-             $user['email']     = ( !empty($post['local_new_user_email']) ? 
-                                    $post['local_new_user_email']:'');
-             $user['password']  = (empty($post['local_new_password']) ? 
-                                    $post['local_new_password']:self::generate_password());
-             $user['username']  = $post['local_new_username'];
-         }
-         // See if it should be an array based on $user_configures_acct
-         elseif( self::$user_configures_acct )
-         {
+            }
+            $user['name'] = ( !empty($post['fb_new_full_name']) ? $post['fb_new_full_name']:
+                                $post['fb_new_first_name'] );
+                
+            // Determine if using an existing account or not
+            if( $post['existing_user_use'] === '1' )
+            {
+                // Check user login
+                if( !$result = $facebook->verify_wolf_user(array( 
+                    'username' => $post['existing_user_username'],
+                    'password' => $post['existing_user_password'])) )
+                {
+                    return array( 'error' => true,
+                                  'msg'   => "Your user account could not be verified!" . 
+                                             " Check your password and username.");
+                }
+                // We only need the wolf uid since they already have an account
+                $fbuser['wolf_uid'] = $result['id'];
+            }
+            
+            // Use new User account section
+            elseif( $post['local_new_use'] === '1' )
+            {
+                // Define user's details for Wolf user table
+                $user['password']  = ( !empty($post['local_new_password']) ? 
+                                        $post['local_new_password']:self::generate_password());
+                $user['username']  = $post['local_new_username'];
+            }
+        }
+        
+        // See if it should be an array based on $user_configures_acct
+        elseif( self::$user_configures_acct )
+        {
             try
             {
                 throw new Exception("`add_new_user` was called without being provided" . 
@@ -409,19 +480,34 @@ class FacebookConnect extends Facebook
             $user['password'] = self::generate_password();
         }
         // Used to verify user doesn't already exist in `facebook_users` table
-        $user['uid'] = $post['fb_new_id'];
-        
-        // Try to add user to the Wolf user system
-        if( !$facebook->add_user_to_wolf($user) )
+        $user['uid']   = $post['fb_new_id'];
+        $user['email'] = ( !empty($post['local_new_user_email']) ? 
+                            $post['local_new_user_email']:'');
+                
+        if( $post['existing_user_use'] === '0' )
         {
-            return array( 'error' => true,
-                          'msg'   => "There was an error creating your account.  " . 
-                                     "Please notify a system administrator of this error.");
+            // Check if user already exists
+            if( $facebook->check_user_exists($post['local_new_username'], 'wolf') )
+            {
+                return array( 'error' => true,
+                              'msg'   => "The username `{$post['local_new_username']}` " . 
+                                         "already exists! Please choose another username " .
+                                         " or use the Existing User section.");
+            }
+            
+            // Try to add user to Wolf user table
+            if(!$facebook->add_user_to_wolf($user) )
+            {
+                return array( 'error' => true,
+                              'msg'   => "There was an error creating your account.  " . 
+                                         "Please notify a system administrator of this error.");
+            }
         }
         
         // Create Facebook user array
         $fbuser['uid']          = $user['uid'];
-        $fbuser['wolf_uid']     = self::$last_insert['id'];
+        $fbuser['wolf_uid']     = (isset($fbuser['wolf_uid']) ? $fbuser['wolf_uid'] : 
+                                    self::$last_insert['id']);
         $fbuser['name']         = $user['name'];
         $fbuser['first_name']   = $post['fb_new_first_name'];
         $fbuser['last_name']    = $post['fb_new_last_name'];
@@ -480,7 +566,7 @@ class FacebookConnect extends Facebook
             }
             
             // Specify which keys we need for the database
-            $fields = array('uid', 'name', 'first_name', 'last_name', 'link', 'gender');
+            $fields = array('uid', 'wolf_uid', 'name', 'first_name', 'last_name', 'link', 'gender');
             
             /**
              * Loop over the user info array and remove any values we don't need
@@ -503,7 +589,14 @@ class FacebookConnect extends Facebook
         }
         
         // Try to insert user into the database
-        if( !self::db_insert('facebook_users', $user) ) { return false; }
+        if( !self::db_insert('facebook_users', $user) ) 
+        { 
+            return false; 
+        }
+        else
+        {
+            return true;
+        }
     }
     
    /**
@@ -545,7 +638,7 @@ class FacebookConnect extends Facebook
             }
             
             // Check if Wolf user already exists
-            if( $row = self::db_select_one('users', "username='{$user['username']}'") )
+            if( $row = self::db_select_one('user', "username='{$user['username']}'") )
             {
                 throw new Exception("User `{$user['username']}` already exists! " . 
                     "`add_user_to_wolf()` shouldn't have been called.");
@@ -558,9 +651,9 @@ class FacebookConnect extends Facebook
             unset($user['uid']);
             
             // Try adding new user to Wolf user table
-            if( !self::db_insert('users', $user) )
+            if( !self::db_insert('user', $user) )
             {
-                throw new Exception("Add user to Wolf `users` table failed!");
+                throw new Exception(" Add user to Wolf `users` table failed!");
             }
         }
         catch(Exception $e)
@@ -589,15 +682,9 @@ class FacebookConnect extends Facebook
     */
     protected function validate_new_user_data($post)
     {
-        // Specify all keys that should be in the new_user_form $_POST data.
+        // All keys that should be in the new_user_form $_POST data.
         // (Used for verification)
-        $new_user_form_keys = array (
-            'fb_new_id', 'fb_new_full_name', 'fb_new_first_name', 'fb_new_last_name', 
-            'fb_new_gender', 'fb_new_link', 'local_new_use', 'local_new_user_email',
-            'local_new_username', 'local_new_password', 'local_new_password_confirm',
-            'existing_user_use', 'existing_user_username', 'existing_user_email',
-            'existing_user_password','fb_commit'
-         );
+        $new_user_form_keys = self::$new_user_form_keys;
         
         // Specify required fields and their user-friendly names
         $new_user_required_keys = array (
@@ -641,7 +728,7 @@ class FacebookConnect extends Facebook
                 $other_keys['existing_user_email'] = 'Existing User Email';
             }
             $other_keys['existing_user_password'] = 'Existing User Password';
-                
+        }  
                 
         /**
          * Check if ONLY and ALL of the correct keys are present in the $_POST data
@@ -672,7 +759,7 @@ class FacebookConnect extends Facebook
         // Check if required fields are empty
         foreach($new_user_required_keys as $key => $val)
         {
-            if( empty($post[$key]) )
+            if( empty($post[$key]) && $post[$key] !== '0' )
             {
                 $empties[] = "'$val'";
                 $are_empties = true;
@@ -689,7 +776,7 @@ class FacebookConnect extends Facebook
         }
         
         // Check if passwords match
-        if( $_POST['password'] !== $_POST['password_confirm'] )
+        if( $_POST['local_new_password'] !== $_POST['local_new_password_confirm'] )
         {
             $return['error'] = true;
             $return['msg']   = "Passwords do not match!";
@@ -706,7 +793,7 @@ class FacebookConnect extends Facebook
     * user wants to add an existing Wolf account to a new Facebook login.
     *
     * @param    array   $user   Array with username and password
-    * @return   bool            True if valid, false if not
+    * @return   mixed           User info array on success, false if not
     * @access   private
     */
     private function verify_wolf_user($user=array())
@@ -718,7 +805,7 @@ class FacebookConnect extends Facebook
                 throw new Exception("Both `password` and `username` keys were not set!");
             }
             
-            if( !self::db_select('user', "username='{$user['username']}' AND password='" . 
+            if( !$info = self::db_select_one('user', "username='{$user['username']}' AND password='" . 
                 sha1($user['password']) . "'") )
             {
                 throw new Exception("User `{$user['username']}` failed to provide " . 
@@ -730,9 +817,26 @@ class FacebookConnect extends Facebook
             self::handleException($e);
             return false;
         }
-        return true;
+        return $info;
     }
-    
+   
+   /**
+    * Log Facebook User Into Wolf Account
+    *
+    * This method mimicks the AuthUser model's login() method, which is where
+    * user's are logged in.
+    *
+    * Great care should be used when using this method since a password is not
+    * required and therefore should ONLY be called after the Facebook user has
+    * been validated.
+    *
+    * TODO Change $user parameter to username instead of user id
+    *
+    * @param    int     Facebook user's Wolf account user id
+    * @return   bool    True on successful login, False on fail
+    * @access   private
+    * @throws   Exception
+    */
     private function login_wolf_user($user)
     {
         try
@@ -743,6 +847,7 @@ class FacebookConnect extends Facebook
             }
             // Attempt to find user
             $user = User::findBy('id', $user);
+            
             if( !$user instanceof User )
             {
                 throw new Exception("User could not be found!");
@@ -758,15 +863,31 @@ class FacebookConnect extends Facebook
         $user->last_login = date('Y-m-d H:i:s');
         $user->save();
         
-        if (self::$cookieSupport) 
+        if ( self::$fb_instance->cookieSupport ) 
         {
-            $time = $_SERVER['REQUEST_TIME'] + self::COOKIE_LIFE;
+            $time = $this->get_cookie_expiration_time();
             
-            setcookie(self::COOKIE_KEY, self::bakeUserCookie($time, $user->username), 
+            setcookie(AuthUser::COOKIE_KEY, self::bakeUserCookie($time, $user), 
                 $time, '/', null, 
                 (isset($_ENV['SERVER_PROTOCOL']) && ((strpos($_ENV['SERVER_PROTOCOL'],'https') || strpos($_ENV['SERVER_PROTOCOL'],'HTTPS')))));
         }
-    //////////////////////////   STOPPED HERE ////////////////////////////////
+        AuthUser::setInfos($user);
+        return true;
+    }
+    
+   /**
+    * Get PDO database Instance/Object
+    *
+    * Determines if a database object has already been set and if not, set it and
+    * returns the PDO object.
+    * This also sets the {@link $pdo_error_mode}, which is used to determine how
+    * to handle PDO errors.
+    *
+    * @param    void
+    * @return   object  PDO Object
+    * @access   protected
+    * @static
+    */
     protected static function get_db_instance()
     {
         if( !is_object( self::$pdo ) )
@@ -793,7 +914,7 @@ class FacebookConnect extends Facebook
         }
         
         // Form prepared statement with bind params
-        $sql = sprintf("INSERT INTO ". TABLE_PREFIX ."%s (%s) VALUES ('%s')",  
+        $sql = sprintf("INSERT INTO ". TABLE_PREFIX ."%s (%s) VALUES (%s)",  
             $table,
             implode(", ", array_keys($data)),
             ":" . implode(", :", array_keys($data)));
@@ -801,14 +922,14 @@ class FacebookConnect extends Facebook
         // Try to prepare statement and bind params
         try
         {
-            if( !$stmt = self::$pdo->prepare($sql) && $check )
+            if( (!$stmt = self::$pdo->prepare($sql)) && $check )
             {
                 throw new Exception( "Insert data failed. ". 
-                    vsprintf(self::$pdo_error, $stmt->errorInfo()) );
+                    vsprintf(self::$pdo_error, self::$pdo->errorInfo()) );
             }
             
             // Loop over each value and bind it
-            foreach( $data as $key => $val )
+            foreach( $data as $key => &$val )
             {
                 // Break loop if bindParam fails to avoid fatal errors
                 if( !$stmt->bindParam(':' . $key, $val) )
@@ -829,7 +950,7 @@ class FacebookConnect extends Facebook
             if( $stmt->execute() )
             {
                 self::$last_insert['id'] = self::$pdo->lastInsertId();
-                self::$last_insert['rows'] = self::$pdo->rowCount();
+                self::$last_insert['rows'] = $stmt->rowCount();
                 return true;
             }
             else
@@ -856,10 +977,18 @@ class FacebookConnect extends Facebook
             $table, 
             empty($where) ? '':" WHERE $where");
         $stmt = self::$pdo->prepare($sql);
+
+        if( !is_object($stmt) )
+        {
+            return false;
+        }
+        
         $stmt->execute();
         return $stmt;
     }
     
+   /**
+    * FOR FUTURE USE
     protected static function db_prepared_select($format, $params)
     {
         self::get_db_instance();
@@ -870,7 +999,7 @@ class FacebookConnect extends Facebook
                 throw new Exception("The prepared statement failed!  Check the " .
                     "`\$format` parameter.");
             }
-            
+    */
     
     public static function db_select_one($table, $where, $col=null)
     {
@@ -879,6 +1008,8 @@ class FacebookConnect extends Facebook
             throw new Exception("Method `db_select_one` was called with invalid parameters.");
         }
         $stmt = self::db_select($table, $where, $col);
+
+        if( !is_object($stmt) ) { return false; }
         
         return $stmt->fetch(PDO::FETCH_ASSOC);
     }
@@ -890,6 +1021,8 @@ class FacebookConnect extends Facebook
             throw new Exception("Method `db_select_all` MUST have a valid table parameter");
         }
         $stmt = self::db_select($table, $where, $col);
+        
+        if( !is_object($stmt) ) { return false; }
         
         while( $row = $stmt->fetch(PDO::FETCH_ASSOC) )
         {
@@ -944,10 +1077,28 @@ class FacebookConnect extends Facebook
     public static function generate_password( $length=10 )
     {
         $val = '';
-        for ($i=0; $i<$length; $i++) {
+        for ($i=0; $i<$length; $i++) 
+        {
             $d=rand(1,30)%2;
-            $val .= $d ? (rand(10,99)%2 ? mb_strtolower(chr(rand(65,90))):chr(rand(65,90))) : chr(rand(48,57));
+            $val .= $d ? (rand(10,99)%2 ? mb_strtolower(chr(rand(65,90))):
+                        chr(rand(65,90))) : chr(rand(48,57));
         }
+        return $val;
+    }
+   
+   /**
+    * Copied from AuthUser Model
+    *
+    * This method was copied from the Wolf core AuthUser model since it is a protected
+    * method and therefore cannot be called directly.
+    *
+    * @param    int     $time   Unix timestamp for when the cookie should expire
+    * @param    obj     $user   Wolf User object
+    * @return   string          string with cookie data
+    * @access   protected
+    */ 
+    static protected function bakeUserCookie($time, $user) {
+        return 'exp='.$time.'&id='.$user->id.'&digest='.md5($user->username.$user->password);
     }
     
     private static function handleException($e)
@@ -963,3 +1114,9 @@ class FacebookConnect extends Facebook
         return false;
     }
 }
+/*
+echo '<pre>';
+$reflection = new ReflectionClass('FacebookConnect');
+print_r($reflection->getMethods());
+echo '</pre>';
+*/

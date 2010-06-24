@@ -1,7 +1,6 @@
-<?php echo '<pre>' . var_export($_POST, true) . '</pre>'; 
-$req = array();
+<?php // echo '<pre>' . var_export($existing_user_username, true) . '</pre>'; 
 ?>
-<p style="font-weight:bold">Welcome <?php echo $first_name; ?>!</p>
+<p style="font-weight:bold">Welcome <?php echo $fb_new_first_name; ?>!</p>
 <p>Since this is your first time logging in via Facebook, we need to verify a
     few details right quick.<br />
     This is a one-time thing, so you won't see this again.
@@ -18,28 +17,28 @@ $req = array();
     <h3>Facebook Information</h3>
     <p>This information was automatically retrieved from Facebook.</p>
     <p>
-        <input type="hidden" name="fb_new_id" value="<?php echo $id; ?>" />
-        <input type="text" name="fb_new_full_name" id="fb_new_full_name" value="<?php echo $name; ?>" size="22" /> 
+        <input type="hidden" name="fb_new_id" value="<?php echo $fb_new_id; ?>" />
+        <input type="text" name="fb_new_full_name" id="fb_new_full_name" value="<?php echo $fb_new_full_name; ?>" size="22" /> 
         <label for="fb_new_full_name"> Full Name </label>
     </p>
     <p>
-        <input type="text" name="fb_new_first_name" id="fb_new_first_name" value="<?php echo $first_name; ?>" size="22" />
+        <input type="text" name="fb_new_first_name" id="fb_new_first_name" value="<?php echo $fb_new_first_name; ?>" size="22" />
         <label for="fb_new_first_name"> First Name <em>(required)</em></label>
     </p>
     <p>
-        <input type="text" name="fb_new_last_name" id="fb_new_last_name" value="<?php echo $last_name; ?>" size="22" />
+        <input type="text" name="fb_new_last_name" id="fb_new_last_name" value="<?php echo $fb_new_last_name; ?>" size="22" />
         <label for="fb_new_last_name"> Last Name <em>(required)</em></label>
     </p>
     <p>
         <select name="fb_new_gender" id="fb_new_gender">
-            <option value="male"<?php echo($gender === 'male' ? $selected:''); ?>>Male</option>
-            <option value="female"<?php echo($gender === 'female' ? $selected:''); ?>>Female</option>
-            <option value=""<?php echo(empty($gender) ? $selected:''); ?>><em>Not Specified</em></option>
+            <option value="male"<?php echo($fb_new_gender === 'male' ? $selected:''); ?>>Male</option>
+            <option value="female"<?php echo($fb_new_gender === 'female' ? $selected:''); ?>>Female</option>
+            <option value=""<?php echo(empty($fb_new_gender) ? $selected:''); ?>><em>Not Specified</em></option>
         </select>
         <label for="fb_new_gender"> Gender </label>
     </p>
     <p>
-        <input type="text" name="fb_new_link" id="fb_new_link" value="<?php echo $link; ?>" size="22" />
+        <input type="text" name="fb_new_link" id="fb_new_link" value="<?php echo $fb_new_link; ?>" size="22" />
         <label for="fb_new_link"> Facebook Profile Link </label>
     </p>
     <hr />
@@ -50,23 +49,23 @@ $req = array();
     <p>
         <label>Use this section? <em>(If you specify an email here, it will still be used regardless of this setting.)</em></label>
         <br />
-        <input type="radio" name="local_new_use" value="1" /> True&nbsp;&nbsp;&nbsp;
-        <input type="radio" name="local_new_use" value="0"<?php echo $checked; ?> /> False
+        <input type="radio" name="local_new_use" value="1"<?php echo($local_new_use === '1' ? $checked:''); ?> /> True&nbsp;&nbsp;&nbsp;
+        <input type="radio" name="local_new_use" value="0"<?php echo($local_new_use === '0' || empty($local_new_use) ? $checked:''); ?> /> False
     </p>
     <p>
-        <input type="text" name="local_new_user_email" id="local_new_user_email" value="" size="22" /> 
+        <input type="text" name="local_new_user_email" id="local_new_user_email" value="<?php echo $local_new_user_email; ?>" size="22" /> 
         <label for="local_new_user_email"> Email <em>(Will not be published.)</em></label>
     </p>
     <p>
-        <input type="text" name="local_new_username" id="local_new_username" value="" size="22" /> 
+        <input type="text" name="local_new_username" id="local_new_username" value="<?php $local_new_username; ?>" size="22" /> 
 	    <label for="local_new_username"> Username <em>(Used for this site only.)</em></label>
     </p>
     <p>
-	    <input type="password" name="local_new_password" id="local_new_password" value="" size="22" />
+	    <input type="password" name="local_new_password" id="local_new_password" size="22" />
 	    <label for="local_new_password"> Password <em>(Allows login without Facebook Account.)</em></label>
     </p>
     <p>
-	    <input type="password" name="local_new_password_confirm" id="local_new_password_confirm" value="" size="22" />
+	    <input type="password" name="local_new_password_confirm" id="local_new_password_confirm" size="22" />
 	    <label for="local_new_password_confirm"> Password Confirm <em>(Confirm password.)</em></label>
     </p>
     <hr />
@@ -78,15 +77,15 @@ $req = array();
     <p>
         <label>Use this section?</label>
         <br />
-        <input type="radio" name="existing_user_use" value="1" /> True&nbsp;&nbsp;&nbsp;
-        <input type="radio" name="existing_user_use" value="0"<?php echo $checked; ?> /> False
+        <input type="radio" name="existing_user_use" value="1"<?php echo($existing_user_use === '1' ? $checked:''); ?> /> True&nbsp;&nbsp;&nbsp;
+        <input type="radio" name="existing_user_use" value="0"<?php echo($existing_user_use === '0' || empty($existing_user_use) ? $checked:''); ?> /> False
     </p>
     <p>
-        <input type="text" name="existing_user_username" id="existing_user_username" size="22" />
+        <input type="text" name="existing_user_username" id="existing_user_username" value="<?php echo $existing_user_username; ?>" size="22" />
         <label for="existing_user_username"> Existing Username</label>
     </p>
     <p>
-        <input type="text" name="existing_user_email" id="existing_user_email" size="22" />
+        <input type="text" name="existing_user_email" id="existing_user_email" value="<?php $existing_user_email; ?>" size="22" />
         <label for="existing_user_email"> Existing Email Address</label>
     </p>
     <p>

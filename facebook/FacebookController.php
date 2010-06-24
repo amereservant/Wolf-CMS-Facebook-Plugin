@@ -95,89 +95,51 @@ class FacebookController extends PluginController
     
     public function new_user_page()
     {
-        if(isset($_POST))
+        // Get form array keys so all keys will be set
+        $data = array_flip(FacebookConnect::$new_user_form_keys);
+        
+        // Remove all values ( They will be the numerical array keys as the values)
+        foreach($data as $key => $val)
         {
-            $result = $this->validate_new_user_data();
-            if( $result['error'] )
+            $data[$key] = null;
+        }
+        
+        if(isset($_POST['fb_new_id'], $_POST['local_new_use'], $_POST['fb_commit']))
+        {
+            $result = FacebookConnect::add_new_user($_POST);
+            if( !$result['error'] )
             {
-                Flash::set('error', __($result['msg']));
-            }
-            else
-            {
+                echo 'SUCCESS';
+                sleep(1);
                 Flash::set('success', __('Your settings have been successfully applied!'));
                 redirect(URL_PUBLIC);
             }
         }
         
-        $data             = FacebookConnect::get_user_info();
-        $data['checked']  = $this->checked;
-        $data['selected'] = $this->selected;
-        $this->display('../../plugins/facebook/views/public/new_user_form', $data);
-    }
-    
-    private function validate_new_user_data()
-    {
-        // Specify all keys that should be in the new_user_form $_POST data.
-        // (Used for verification)
-        $new_user_form_keys = array (
-            'fb_new_id', 'fb_new_full_name', 'fb_new_first_name', 'fb_new_last_name', 
-            'fb_new_gender', 'fb_new_link', 'local_new_use', 'local_new_user_email',
-            'local_new_username', 'local_new_password', 'local_new_password_confirm',
-            'existing_user_use', 'existing_user_username', 'existing_user_email',
-            'existing_user_password','fb_commit'
-         );
+        $user = FacebookConnect::get_user_info();
         
-        // Specify required fields and their user-friendly names
-        $new_user_required_keys = array (
-            'fb_new_id'         => 'Facebook User ID', 
-            'fb_new_first_name' => 'First Name',
-            'local_new_use'     => 'Use Section User Info',
-            'existing_user_use' => 'Use Section Existing Local Account'
-        );
-        
-        /**
-         * Check if ONLY and ALL of the correct keys are present in the $_POST data
-         * array_keys_match() function is defined in index.php.
-         * Perhaps add 'write-data-to-file-on-fail' to this part so user data isn't lost.
-         */
-        if( !array_keys_match($_POST, array_flip($new_user_form_keys)) )
+        $data['checked']            = $this->checked;
+        $data['selected']           = $this->selected;
+        $data['fb_new_full_name']   = $user['name'];
+        $data['fb_new_id']          = $user['id'];
+        $data['fb_new_first_name']  = $user['first_name'];
+        $data['fb_new_last_name']   = $user['last_name'];
+        $data['fb_new_link']        = $user['link'];
+        $data['fb_new_gender']      = $user['gender'];
+        echo '<pre>' . print_r($result, true) . '</pre>';
+        if( isset($_POST['fb_new_id'], $_POST['local_new_use'], $_POST['fb_commit']) )
         {
-            $return['error'] = true;
-            $return['msg']   = "Submitted data doesn't appear to be valid. ";
-            $return['msg']  .= "If the problem persists, please notify an administrator.";
-            return $return;
-        }
-        
-        $empties   = array();
-        $are_empties    = false;
-        // Check required fields aren't empty
-        foreach($new_user_required_keys as $key => $val)
-        {
-            if( empty($_POST[$key]) )
+            $data = array_merge($data, $_POST);
+           
+            if( $result['error'] )
             {
-                $empties[] = "'$val'";
-                $are_empties = true;
+                Flash::set('error', __($result['msg']));
             }
         }
         
-        if( $are_empties ) 
-        {  
-            $return['error'] = true;
-            $return['msg']   = "The fields " . implode(", ", $empties) .
-                " cannot be empty!  Please correct these and try again.";
-            return $return;
-        }
-        
-        // Check if passwords match
-        if( $_POST['password'] !== $_POST['password_confirm'] )
-        {
-            $return['error'] = true;
-            $return['msg']   = "Passwords do not match!";
-            return $return;
-        }
-        return $return['error'] = false;
-    }    
-        
+        $this->display('../../plugins/facebook/views/public/new_user_form', $data);
+    }
+    
     private function getLayoutId($page) {
 		if ($page->layout_id){
 		    return $page->layout_id;

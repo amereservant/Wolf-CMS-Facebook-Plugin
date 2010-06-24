@@ -42,7 +42,7 @@ Observer::observe('page_requested', 'uri_test');
 function uri_test($uri)
 {
     $url = BASE_URL. 'facebook_new_user' .URL_SUFFIX;
-    // var_dump(get_url('new_user'));
+    var_dump(get_url('new_user'));
 }
 
 // Login Form Display

@@ -7,8 +7,7 @@ $settings = array(
     'fb_api_key'            => 'Facebook API Key',
     'fb_application_secret' => 'Facebook Application Secret',
     'fb_use_cookies'        => 0,
-    'user_sets_wolf_acc'    => 0,
-    'fb_page_slug'          => 'facebook_new_user'
+    'user_sets_wolf_acc'    => 0
     );
 
 Plugin::setAllSettings($settings, 'facebook');
@@ -23,7 +22,8 @@ if( !Record::query( "SELECT id FROM ". TABLE_PREFIX ."facebook_users" ) )
     $PDO->exec("CREATE TABLE ". TABLE_PREFIX ."facebook_users (
         id INTEGER". ($sqlite ? '':'(11)') ." NOT NULL PRIMARY KEY,
         uid INTEGER". ($sqlite ? '':'(15)') ." NOT NULL,
-        wolf_uid INTEGER". ($sqlite ? '':'(4)') ." default NULL,
+        wolf_uid INTEGER". ($sqlite ? '':'(4)') ." NOT NULL,
+        wolf_username VARCHAR(125) NOT NULL,
         name VARCHAR(75) NOT NULL,
         first_name VARCHAR(50) default NULL,
         last_name VARCHAR(50) default NULL,
