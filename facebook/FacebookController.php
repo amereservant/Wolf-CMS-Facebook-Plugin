@@ -11,37 +11,41 @@ class FacebookController extends PluginController
     protected static $__CMS_CONN__;
     
    /**
-    * Plugin Path
-    */
-    protected static $plugin_path;
-    
-   /**
     * Facebook Instance Object
     */
     protected static $fb_instance;
-    
+   
+   /**
+    * Selected syntax for new_user form
+    */ 
     public $selected = ' selected="selected"';
     
+   /**
+    * Checked syntax for new_user form
+    */
     public $checked = ' checked="checked"';
+    
     
     public function __construct()
     {
-        self::$plugin_path = PLUGINS_ROOT . '/facebook';
-        
+        // Check if $__CMS_CONN__ is an object (PDO)
         if( !is_object( self::$__CMS_CONN__ ) )
         {
             self::$__CMS_CONN__ = Record::getConnection();
         }
-        
+        // Load user authorization
         AuthUser::load();
         
+        // Check if this is a Backend view
         if( defined('CMS_BACKEND') )
         {
+            // Set backend view
             $this->setLayout('backend');
             $this->assignToLayout('sidebar', new View('../../plugins/facebook/views/sidebar'));
         }
         else
         {
+            // Set front-end view
             $page       = $this->findByUri();
             $layout_id  = $this->getLayoutId($page);
             $layout     = Layout::findById($layout_id);
@@ -50,7 +54,7 @@ class FacebookController extends PluginController
     }
     
    /**
-    * Default Plugin View
+    * Default Plugin View - ( Back-end view )
     */
     public function index()
     {
@@ -58,7 +62,14 @@ class FacebookController extends PluginController
     }
     
    /**
-    * Display Settings View
+    * Documentation View - ( Back-end view )
+    */
+    public function documentation() {
+		$this->display('facebook/views/documentation');
+	}
+    
+   /**
+    * Display Settings View - ( Back-end view )
     *
     * See http://www.wolfcms.org/wiki/tutorial:settings_page#adding_the_settings_function 
     * on passing variables.
@@ -73,7 +84,7 @@ class FacebookController extends PluginController
     }
     
    /**
-    * Update Settings
+    * Update Settings - ( Back-end method, used to update posted settings changes )
     */
     public function update_settings()
     {
@@ -95,6 +106,9 @@ class FacebookController extends PluginController
     
     public function new_user_page()
     {
+        // Get FacebookConnect class instance
+        $facebook = FacebookConnect::get_instance();
+
         // Get form array keys so all keys will be set
         $data = array_flip(FacebookConnect::$new_user_form_keys);
         
@@ -110,13 +124,23 @@ class FacebookController extends PluginController
             if( !$result['error'] )
             {
                 echo 'SUCCESS';
-                sleep(1);
                 Flash::set('success', __('Your settings have been successfully applied!'));
                 redirect(URL_PUBLIC);
             }
         }
         
         $user = FacebookConnect::get_user_info();
+        
+        // Check if user already exists
+        if( $facebook->check_user_exists($user['id']) )
+        {
+            // Check if account is already linked to a Wolf account
+            if( !empty(FacebookConnect::$wolf_uid) )
+            {
+                // Redirect them if so
+                redirect(URL_PUBLIC);
+            }
+        }
         
         $data['checked']            = $this->checked;
         $data['selected']           = $this->selected;
@@ -126,7 +150,7 @@ class FacebookController extends PluginController
         $data['fb_new_last_name']   = $user['last_name'];
         $data['fb_new_link']        = $user['link'];
         $data['fb_new_gender']      = $user['gender'];
-        echo '<pre>' . print_r($result, true) . '</pre>';
+        
         if( isset($_POST['fb_new_id'], $_POST['local_new_use'], $_POST['fb_commit']) )
         {
             $data = array_merge($data, $_POST);
@@ -155,5 +179,11 @@ class FacebookController extends PluginController
 			return $this->content;
 		else
 			return false;
+	}
+	
+	public function testing()
+	{
+	    require FB_PLUGIN_ROOT . '/enable.php';
+	    exit();
 	}
 }

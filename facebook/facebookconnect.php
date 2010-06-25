@@ -6,7 +6,9 @@ class FacebookConnect extends Facebook
 {
     protected static $fb_instance;
     
-    protected static $uid;
+    public static $uid;
+    
+    public static $wolf_uid;
     
     protected static $pdo;
     
@@ -359,14 +361,14 @@ class FacebookConnect extends Facebook
     * This method checks if the user has already exists in the 'facebook_users' table
     * or the Wolf `user` table.  
     *
-    * @param    string      $username   If testing a facebook user, this will be the
+    * @param    string      $user       If testing a facebook user, this will be the
     *                                   user id, for a wolf user, it will be the username
     * @param    string      $usertbl    Either 'facebook' or 'wolf' to determine
     *                                   which table should be checked.
     * @return   bool                    true if they do exist, false otherwise
-    * @access   protected
+    * @access   public
     */
-    protected function check_user_exists($user, $usertbl='facebook')
+    public function check_user_exists($user, $usertbl='facebook')
     {
         self::get_db_instance();
         
@@ -376,12 +378,17 @@ class FacebookConnect extends Facebook
         // Determine the correct "where" statement
         $where = ($usertbl === 'facebook' ? "uid='{$user}'" : "username='{$user}'");
         
-        if( !self::db_select_one($table, $where) ) 
+        if( !$result = self::db_select_one($table, $where) ) 
         {
             return false;
         } 
         else 
         {
+            if( $usertbl === 'facebook' ) 
+            { 
+                self::$uid = $result['uid'];
+                self::$wolf_uid = $result['wolf_uid']; 
+            }
             return true;
         }
     }

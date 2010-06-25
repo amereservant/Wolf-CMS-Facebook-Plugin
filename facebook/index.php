@@ -34,6 +34,7 @@ Plugin::addController('facebook', 'Facebook', 'administrator');
 // Add Logout Dispatcher
 Dispatcher::addRoute( array(
     '/logout/' => '/plugin/facebook/fblogout/',
+    '/testing/' => '/plugin/facebook/testing/',
     '/new_user' => '/plugin/facebook/new_user_page/') );
 
 // Add New User Observer
