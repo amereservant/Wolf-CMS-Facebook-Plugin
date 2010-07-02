@@ -1,31 +1,97 @@
 <?php
 /**
+ * Facebook Plugin Class
+ *
+ * This is the class that integrates the Facebook SDK with WolfCMS.
  * 
+ * It is used to add Facebook login capabilities to the Wolf CMS and integrates
+ * with the Wolf core user system.
+ * It can be expanded to allow user information retrieval and further integration
+ * within a Wolf CMS project.  It is planned in future versions to have these
+ * options already integrated as optional functionality.
+ *
+ * @package     Facebook Plugin
+ * @link        http://github.com/amereservant/Wolf-CMS-Facebook-Plugin Facebook Plugin @ GitHub
+ * @author      David Miles <david@amereservant.com>
+ * @copyright   2010 David Miles
+ * @version     1.0
  */
 class FacebookConnect extends Facebook
 {
+   /**
+    * @staticvar    obj         Instance of FacebookConnect
+    * @access       protected
+    */
     protected static $fb_instance;
     
+   /**
+    * @staticvar    int         Facebook User ID
+    * @access       public
+    */
     public static $uid;
-    
+   
+   /**
+    * @staticvar    int         Wolf user ID
+    * @access       public
+    */
     public static $wolf_uid;
     
+   /**
+    * @staticvar    obj         PDO object
+    * @access       protected
+    */
     protected static $pdo;
     
+   /**
+    * @staticvar    string      printf formatted string for PDO error messages
+    * @access       private
+    */
     private static $pdo_error = ' PDO ERROR: %3$s';
     
+   /**
+    * @staticvar    int         Integer based on the Error Mode constants for PDO.
+    *                           See {@link http://php.net/manual/pdo.constants.php}
+    * @access       private
+    */
     private static $pdo_error_mode;
     
+   /**
+    * @staticvar    array       Array containing last database insert ID and row count
+    * @access       protected
+    */
     protected static $last_insert;
     
+   /**
+    * @staticvar    bool        Determines if the `new_user_page` should be displayed
+    *                           for new users.
+    * @access       public
+    */
     public static $user_configures_acct;
     
+   /**
+    * @staticvar    bool        Whether or not Facebook Logins are enabled.
+    * @access       public
+    */
     public static $enabled;
     
+   /**
+    * @staticvar    array       Facebook user session data.
+    * @access       public
+    */
     public static $usr_session;
     
+   /**
+    * @staticvar    array
+    * @access       public
+    * @TODO         Compare this value/usage to {@link $usr_session}.
+    *               This may be a duplicate that can be removed.
+    */
     public static $user_info;
     
+   /**
+    * @staticvar    array       All of the new user form keys.
+    * @access       public
+    */
     public static $new_user_form_keys = array (
         'fb_new_id', 'fb_new_full_name', 'fb_new_first_name', 'fb_new_last_name', 
         'fb_new_gender', 'fb_new_link', 'local_new_use', 'local_new_user_email',
@@ -33,6 +99,16 @@ class FacebookConnect extends Facebook
         'existing_user_use', 'existing_user_username', 'existing_user_email',
         'existing_user_password','fb_commit');
     
+   /**
+    * Class Constructor
+    *
+    * Constructs the parent class and passes an array of initialization values
+    * to the parent class.
+    *
+    * See {@link parent::__construct()} for more information.
+    * @param    array
+    * @access   public
+    */
     public function __construct($array)
     {
         parent::__construct($array);
@@ -904,7 +980,23 @@ class FacebookConnect extends Facebook
         self::$pdo_error_mode = self::$pdo->getAttribute(PDO::ATTR_ERRMODE);
         return self::$pdo;
     }
-    
+   
+   /**
+    * Database Insert Method
+    *
+    * This method is used to insert data into a database.
+    * This method throws an exception on error and returns false, otherwise
+    * it will set the {@link $last_insert} array.
+    * 
+    * @param    string  $table      Table name to insert data into.
+    * @param    array   $data       An array containing the column names as
+    *                               the array keys and the values to insert.
+    *                               This method will fail if the column names
+    *                               aren't correct.
+    * @return   bool                True on success, false on fail
+    * @static
+    * @access   public
+    */
     public static function db_insert($table, $data = array())
     {
         $pdo = self::get_db_instance();
@@ -975,16 +1067,39 @@ class FacebookConnect extends Facebook
         }
     }
     
+   /**
+    * Database Select
+    *
+    * This method serves as the base for the other database select methods, 
+    * which is why it returns the PDOStatement object on success so the results
+    * can be itterated over depending on the method used.
+    *
+    * Here's an example of the $where parameter:
+    * <code>
+    *   $where = "username='johndoe123'";
+    * </code>
+    *
+    * @param    string      $table      The table name the query should be performed on.
+    * @param    string      $where      A "WHERE" statement string.
+    * @param    string      $col        A specific column to query results from.
+    * @return   mixed                   (bool)false on fail, PDOStatement object on success.
+    * @access   protected
+    * @static
+    * @TODO     Change this to use bind params instead.
+    */
     protected static function db_select($table, $where=null, $col=null)
     {
+        // Make sure $pdo property is set
         self::get_db_instance();
         
+        // Form SQL statement using sprintf
         $sql = sprintf("SELECT %s FROM ". TABLE_PREFIX ."%s%s",
             empty($col) ? "*":$col,
             $table, 
             empty($where) ? '':" WHERE $where");
         $stmt = self::$pdo->prepare($sql);
 
+        // Make sure $stmt is an object to avoid fatal warnings
         if( !is_object($stmt) )
         {
             return false;
@@ -995,32 +1110,47 @@ class FacebookConnect extends Facebook
     }
     
    /**
-    * FOR FUTURE USE
-    protected static function db_prepared_select($format, $params)
-    {
-        self::get_db_instance();
-        try
-        {    
-            if( !self::$pdo->prepare($format) )
-            {
-                throw new Exception("The prepared statement failed!  Check the " .
-                    "`\$format` parameter.");
-            }
+    * Select One Row
+    *
+    * This is used when wanting to only retrieve one result row from the database.
+    *
+    * @param    string      $table      The table name the query should be performed on.
+    * @param    string      $where      A "WHERE" statement string.
+    * @param    string      $col        A specific column to query results from.
+    * @return   mixed                   Array containing the row data on success,
+    *                                   (bool) false on failure.
+    * @access   public
+    * @static
     */
-    
     public static function db_select_one($table, $where, $col=null)
     {
+        // Check if the two required parameters aren't empty
         if( empty($table) || empty($where) )
         {
             throw new Exception("Method `db_select_one` was called with invalid parameters.");
         }
+        // Query the database using the {@link db_select()} method
         $stmt = self::db_select($table, $where, $col);
 
         if( !is_object($stmt) ) { return false; }
         
+        // Return associative array
         return $stmt->fetch(PDO::FETCH_ASSOC);
     }
     
+   /**
+    * Select All Rows
+    *
+    * This method returns all matching rows based on the parameters provided.
+    *
+    * @param    string      $table      The table name the query should be performed on.
+    * @param    string      $where      A "WHERE" statement string.
+    * @param    string      $col        A specific column to query results from.
+    * @return   mixed                   Multi-dimensional associative array on success,
+    *                                   (bool) false on fail.
+    * @access   public
+    * @static
+    */
     public static function db_select_all($table, $where=null, $col=null)
     {
         if( empty($table) )
@@ -1038,6 +1168,16 @@ class FacebookConnect extends Facebook
         return $return;
     }
     
+   /**
+    * Get Facebook Logout URL
+    *
+    * This is used to form the URL for users to logout.
+    * It is used as the `href` value for the Logout button.
+    *
+    * @param    $params
+    * @return   string      String with the logout URL
+    * @access   public
+    */
     public function getLogoutUrl($params=array()) 
     {
         $session = $this->getSession();
@@ -1121,9 +1261,3 @@ class FacebookConnect extends Facebook
         return false;
     }
 }
-/*
-echo '<pre>';
-$reflection = new ReflectionClass('FacebookConnect');
-print_r($reflection->getMethods());
-echo '</pre>';
-*/

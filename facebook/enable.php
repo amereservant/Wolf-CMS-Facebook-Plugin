@@ -1,5 +1,4 @@
 <?php
-error_reporting(E_ALL);
 define('FACEBOOK_ROOT', PLUGINS_ROOT . '/facebook');
 require FACEBOOK_ROOT . '/facebook.php';
 require FACEBOOK_ROOT . '/facebookconnect.php';
@@ -16,7 +15,7 @@ $settings = array(
 Plugin::setAllSettings($settings, 'facebook');
 
 $PDO = FacebookConnect::get_db_instance();
-$PDO->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+// $PDO->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 $sqlite = ( $PDO->getAttribute(Record::ATTR_DRIVER_NAME) === 'sqlite' );
 
 if( !Record::query( "SELECT id FROM ". TABLE_PREFIX ."facebook_users" ) )

@@ -8,14 +8,15 @@
  *
  */
 Plugin::setInfos(array(
-    'id'            => 'facebook',
-    'title'         => 'Facebook',
-    'description'   => 'Allows developers to impliment Facebook API.',
-    'version'       => '1.0',
-    'license'       => 'Apache License, Version 2.0',
-    'author'        => 'David Miles',
+    'id'                    => 'facebook',
+    'title'                 => 'Facebook',
+    'description'           => 'Allows developers to impliment Facebook API.',
+    'version'               => '1.0',
+    'license'               => 'Apache License, Version 2.0',
+    'author'                => 'David Miles',
     'required_wolf_version' => '0.6.0',
-    'type'          => 'both')
+    'update_url'            => 'http://amereservant.com/fbplugin/current_version.xml',
+    'type'                  => 'both')
     );
 
 define('FB_PLUGIN_ROOT', PLUGINS_ROOT . '/facebook');
@@ -34,24 +35,15 @@ Plugin::addController('facebook', 'Facebook', 'administrator');
 // Add Logout Dispatcher
 Dispatcher::addRoute( array(
     '/logout/' => '/plugin/facebook/fblogout/',
-    '/testing/' => '/plugin/facebook/testing/',
     '/new_user' => '/plugin/facebook/new_user_page/') );
 
-// Add New User Observer
-Observer::observe('page_requested', 'uri_test');
-
-function uri_test($uri)
-{
-    $url = BASE_URL. 'facebook_new_user' .URL_SUFFIX;
-    // var_dump(get_url('new_user'));
-}
-
-// Login Form Display
+// Login Form Display - Used by the facebook-login snippet
 function fb_login()
 {
     return FacebookConnect::fb_login();
 }
 
+// Custom function used by the {@link FacebookConnect} class to see if array keys match
 function array_keys_match($array1, $array2)
 {
     $diff = array_diff_key($array1, $array2);

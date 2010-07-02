@@ -99,11 +99,28 @@ class FacebookController extends PluginController
         }
     }
     
+   /**
+    * Log User Out
+    *
+    * This is called by the Dispatcher in {@link index.php} after the user logs
+    * out of Facebook on this website.
+    *
+    * The logout callback is defined in the {@link FacebookConnect::getLogoutUrl()}
+    * method.
+    */
     public function fblogout()
     {
         FacebookConnect::user_logout();
     }
     
+   /**
+    * New User Page
+    *
+    * This is called by the Dispatcher in the {@link index.php} file when a user
+    * logs in with Facebook and doesn't already have a local account.
+    * This is disabled by setting the `Allow Facebook Connect` option in the settings
+    * to `No`.
+    */
     public function new_user_page()
     {
         // Get FacebookConnect class instance
@@ -118,13 +135,16 @@ class FacebookController extends PluginController
             $data[$key] = null;
         }
         
+        // Check a few of the $_POST keys for a submitted form
         if(isset($_POST['fb_new_id'], $_POST['local_new_use'], $_POST['fb_commit']))
         {
+            // Try adding the new user
             $result = FacebookConnect::add_new_user($_POST);
             if( !$result['error'] )
             {
                 echo 'SUCCESS';
                 Flash::set('success', __('Your settings have been successfully applied!'));
+                // Redirect to Home page on success
                 redirect(URL_PUBLIC);
             }
         }
@@ -141,7 +161,7 @@ class FacebookController extends PluginController
                 redirect(URL_PUBLIC);
             }
         }
-        
+        // Form array of data to pass to the `new_user_form` view
         $data['checked']            = $this->checked;
         $data['selected']           = $this->selected;
         $data['fb_new_full_name']   = $user['name'];
@@ -151,6 +171,7 @@ class FacebookController extends PluginController
         $data['fb_new_link']        = $user['link'];
         $data['fb_new_gender']      = $user['gender'];
         
+        // Merge Posted data so if the submitted form fails, the values are filled in
         if( isset($_POST['fb_new_id'], $_POST['local_new_use'], $_POST['fb_commit']) )
         {
             $data = array_merge($data, $_POST);
@@ -160,27 +181,53 @@ class FacebookController extends PluginController
                 Flash::set('error', __($result['msg']));
             }
         }
-        
+        // Display the new_user_form view
         $this->display('../../plugins/facebook/views/public/new_user_form', $data);
     }
     
-    private function getLayoutId($page) {
-		if ($page->layout_id){
+   /**
+    * Used by the {@link __construct()} method for front view
+    */
+    private function getLayoutId($page) 
+    {
+		if ($page->layout_id)
+		{
 		    return $page->layout_id;
-		} else if ($page->parent) {
-				return $this->getLayoutId($page->parent);
-		}else {
-				exit ('This page is not valid...');
+		} 
+		else if ($page->parent) 
+		{
+		    return $this->getLayoutId($page->parent);
+		}
+		else 
+		{
+		    exit('This page is not valid...');
 	    }
 	}
 
-	public function content($part=false, $inherit=false) {
-		if (!$part)
+   /**
+    * Used by the {@link __construct()} method for front view
+    */
+	public function content($part=false, $inherit=false)
+	{
+	    if( !$part )
+	    {
 			return $this->content;
+		}
 		else
+		{
 			return false;
+	    }
 	}
-	
+
+   /**
+    * Testing view
+    *
+    * Used for testing/debugging the `enable.php` script.
+    * Since it is called via an AJAX request, it is easier to debug and test
+    * by creating a direct view.
+    * To use, add '/testing/' => '/plugin/facebook/testing/' to the dispatcher
+    * in index.php
+    */
 	public function testing()
 	{
 	    require FB_PLUGIN_ROOT . '/enable.php';
