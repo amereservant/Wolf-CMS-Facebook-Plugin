@@ -494,13 +494,13 @@ class FacebookConnect extends Facebook
         }
         
         // Define part of the new Wolf user information
-        $user['created_on']     = time('Y-m-d H:i:s');
+        $user['created_on']     = date('Y-m-d H:i:s');
         $user['created_by_id']  = 1;
         $user['language']       = 'en';
         $user['email']          = '';
         
-        // Validate user data if it is a $_POST array
-        if( is_array($post) )
+        // Validate user data if it is a $_POST array and new users configure accounts
+        if( is_array($post) && self::$user_configures_acct )
         {
             // Validate $_POST array
             $valid = $facebook->validate_new_user_data($post);
@@ -523,8 +523,8 @@ class FacebookConnect extends Facebook
                                   'msg'   => "Your user account could not be verified!" . 
                                              " Check your password and username.");
                 }
-                // We only need the wolf uid since they already have an account
                 $fbuser['wolf_uid'] = $result['id'];
+                $fbuser['wolf_username'] = $result['username'];
             }
             
             // Use new User account section
@@ -535,9 +535,34 @@ class FacebookConnect extends Facebook
                                         $post['local_new_password']:self::generate_password());
                 $user['username']  = $post['local_new_username'];
             }
-        }
-        
-        // See if it should be an array based on $user_configures_acct
+            // User doesn't want to specify account info
+            else
+            {
+                $user['password']   = self::generate_password();
+                $username           = mb_strtolower( str_replace(" ", "_", trim($info['name'])) );
+                $user['username']   = $username . mt_rand(1000, 999999);
+            }
+            
+            // Used to verify user doesn't already exist in `facebook_users` table
+            $user['uid']   = $post['fb_new_id'];
+            $user['email'] = ( !empty($post['local_new_user_email']) ? 
+                                $post['local_new_user_email']:'');
+                
+            // Not using an existing account
+            if( $post['existing_user_use'] === '0' )
+            {
+                // Check if Wolf user already exists
+                if( $facebook->check_user_exists($post['local_new_username'], 'wolf') )
+                {
+                    return array( 'error' => true,
+                                  'msg'   => "The username `{$post['local_new_username']}` " . 
+                                             "already exists! Please choose another username " .
+                                             " or use the Existing User section.");
+                }
+            }
+        } /* End of $post is array */
+        // If user configures account, $post will be an array since it requires them
+        // submitting the user details form.
         elseif( self::$user_configures_acct )
         {
             try
@@ -554,32 +579,22 @@ class FacebookConnect extends Facebook
                                          "Please notify a system administrator of this error.");
             }
         }
-        else
+        // User doesn't configure account, so $post won't be an array
+        elseif( !self::$user_configures_acct )
         {
             // Generate user data fields - Facebook-only logins will be used for new users
+            $user['uid']      = $info['id'];
             $user['name']     = $info['name'];
             $username         = mb_strtolower( str_replace(" ", "_", trim($info['name'])) );
             $user['username'] = $username . mt_rand(1000, 999999);
             $user['password'] = self::generate_password();
         }
-        // Used to verify user doesn't already exist in `facebook_users` table
-        $user['uid']   = $post['fb_new_id'];
-        $user['email'] = ( !empty($post['local_new_user_email']) ? 
-                            $post['local_new_user_email']:'');
-                
-        if( $post['existing_user_use'] === '0' )
+           
+        // Try to add user to Wolf user table
+        if( !is_array($post) || isset($post['existing_user_use']) && 
+            $post['existing_user_use'] === '0' )
         {
-            // Check if user already exists
-            if( $facebook->check_user_exists($post['local_new_username'], 'wolf') )
-            {
-                return array( 'error' => true,
-                              'msg'   => "The username `{$post['local_new_username']}` " . 
-                                         "already exists! Please choose another username " .
-                                         " or use the Existing User section.");
-            }
-            
-            // Try to add user to Wolf user table
-            if(!$facebook->add_user_to_wolf($user) )
+            if( !$facebook->add_user_to_wolf($user) )
             {
                 return array( 'error' => true,
                               'msg'   => "There was an error creating your account.  " . 
@@ -591,11 +606,17 @@ class FacebookConnect extends Facebook
         $fbuser['uid']          = $user['uid'];
         $fbuser['wolf_uid']     = (isset($fbuser['wolf_uid']) ? $fbuser['wolf_uid'] : 
                                     self::$last_insert['id']);
+        $fbuser['wolf_username']= (isset($fbuser['wolf_username']) ? $fbuser['wolf_username'] :
+                                    $user['username']);
         $fbuser['name']         = $user['name'];
-        $fbuser['first_name']   = $post['fb_new_first_name'];
-        $fbuser['last_name']    = $post['fb_new_last_name'];
-        $fbuser['link']         = $post['fb_new_link'];
-        $fbuser['gender']       = $post['fb_new_gender'];
+        $fbuser['first_name']   = (isset($post['fb_new_first_name']) ? $post['fb_new_first_name']:
+                                    $info['first_name']);
+        $fbuser['last_name']    = (isset($post['fb_new_last_name']) ? $post['fb_new_last_name']:
+                                    $info['last_name']);
+        $fbuser['link']         = (isset($post['fb_new_link']) ? $post['fb_new_link']:
+                                    $info['link']);
+        $fbuser['gender']       = (isset($post['fb_new_gender']) ? $post['fb_new_gender']:
+                                    $info['gender']);
         
         // Try to add user to the Facebook database table
         try
@@ -649,7 +670,7 @@ class FacebookConnect extends Facebook
             }
             
             // Specify which keys we need for the database
-            $fields = array('uid', 'wolf_uid', 'name', 'first_name', 'last_name', 'link', 'gender');
+            $fields = array('uid', 'wolf_uid', 'wolf_username', 'name', 'first_name', 'last_name', 'link', 'gender');
             
             /**
              * Loop over the user info array and remove any values we don't need
@@ -968,10 +989,10 @@ class FacebookConnect extends Facebook
     *
     * @param    void
     * @return   object  PDO Object
-    * @access   protected
+    * @access   public
     * @static
     */
-    protected static function get_db_instance()
+    public static function get_db_instance()
     {
         if( !is_object( self::$pdo ) )
         {
@@ -1097,7 +1118,15 @@ class FacebookConnect extends Facebook
             empty($col) ? "*":$col,
             $table, 
             empty($where) ? '':" WHERE $where");
-        $stmt = self::$pdo->prepare($sql);
+        try
+        {
+            $stmt = self::$pdo->prepare($sql);
+        }
+        catch(PDOException $e)
+        {
+            self::handleException($e);
+            return false;
+        }
 
         // Make sure $stmt is an object to avoid fatal warnings
         if( !is_object($stmt) )
@@ -1153,6 +1182,8 @@ class FacebookConnect extends Facebook
     */
     public static function db_select_all($table, $where=null, $col=null)
     {
+        $return = array();
+        
         if( empty($table) )
         {
             throw new Exception("Method `db_select_all` MUST have a valid table parameter");

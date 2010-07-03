@@ -11,7 +11,7 @@ Plugin::setInfos(array(
     'id'                    => 'facebook',
     'title'                 => 'Facebook',
     'description'           => 'Allows developers to impliment Facebook API.',
-    'version'               => '1.0',
+    'version'               => '1.0.0',
     'license'               => 'Apache License, Version 2.0',
     'author'                => 'David Miles',
     'required_wolf_version' => '0.6.0',

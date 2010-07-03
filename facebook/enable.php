@@ -6,19 +6,40 @@ require FACEBOOK_ROOT . '/facebookconnect.php';
 $settings = array(
     'fb_installed_version'  => '0.1.0',
     'allow_fb_connect'      => 1,
-    'fb_api_key'            => 'Facebook API Key',
-    'fb_application_secret' => 'Facebook Application Secret',
     'fb_use_cookies'        => 1,
     'user_sets_wolf_acc'    => 1
     );
 
 Plugin::setAllSettings($settings, 'facebook');
 
+$existing = Plugin::getAllSettings('facebook');
+
+// Check if the app key and secret already exists so we don't overwrite the value
+if( !isset($existing['fb_api_key']) || !isset($existing['fb_application_secret']) )
+{
+    $settings = array(
+        'fb_api_key'            => '',
+        'fb_application_secret' => ''
+        );
+    // Create them if they don't with empty values
+    Plugin::setAllSettings($settings, 'facebook');
+}
+
 $PDO = FacebookConnect::get_db_instance();
-// $PDO->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+if( DEBUG === true )
+{
+    $PDO->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+}
+
 $sqlite = ( $PDO->getAttribute(Record::ATTR_DRIVER_NAME) === 'sqlite' );
 
-if( !Record::query( "SELECT id FROM ". TABLE_PREFIX ."facebook_users" ) )
+/**
+ * This will be false if no users have been added to the table even though
+ * the table already exists.  It will cause an error.
+ * Find a better way to test this?
+ */
+if( FacebookConnect::db_select_all( TABLE_PREFIX .'facebook_users' ) === false )
 {
     $PDO->exec("CREATE TABLE ". TABLE_PREFIX ."facebook_users (
         id INTEGER". ($sqlite ? '':'(11)') ." NOT NULL PRIMARY KEY,

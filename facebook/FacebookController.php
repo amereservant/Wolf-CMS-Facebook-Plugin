@@ -223,10 +223,9 @@ class FacebookController extends PluginController
     * Testing view
     *
     * Used for testing/debugging the `enable.php` script.
-    * Since it is called via an AJAX request, it is easier to debug and test
+    * Since enable.php is called via an AJAX request, it is easier to debug and test
     * by creating a direct view.
-    * To use, add '/testing/' => '/plugin/facebook/testing/' to the dispatcher
-    * in index.php
+    * To use, go to the admin section and visit .../admin/plugin/facebook/testing/
     */
 	public function testing()
 	{
