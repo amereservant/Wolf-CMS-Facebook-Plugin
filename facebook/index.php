@@ -11,7 +11,7 @@ Plugin::setInfos(array(
     'id'                    => 'facebook',
     'title'                 => 'Facebook',
     'description'           => 'Allows developers to impliment Facebook API.',
-    'version'               => '1.0.0',
+    'version'               => '1.0.1',
     'license'               => 'Apache License, Version 2.0',
     'author'                => 'David Miles',
     'required_wolf_version' => '0.6.0',
@@ -37,10 +37,13 @@ Dispatcher::addRoute( array(
     '/logout/' => '/plugin/facebook/fblogout/',
     '/new_user' => '/plugin/facebook/new_user_page/') );
 
+Observer::observe( 'page_found', 'fb_login' );
+
 // Login Form Display - Used by the facebook-login snippet
-function fb_login()
+function fb_login( &$page )
 {
-    return FacebookConnect::fb_login();
+    $page->fb_login = FacebookConnect::fb_login();
+    return $page->fb_login;
 }
 
 // Custom function used by the {@link FacebookConnect} class to see if array keys match

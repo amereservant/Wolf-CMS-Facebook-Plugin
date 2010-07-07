@@ -79,7 +79,7 @@ class Facebook
   /**
    * Version.
    */
-  const VERSION = '2.0.3';
+  const VERSION = '2.0.5';
 
   /**
    * Default options for curl.
@@ -248,15 +248,8 @@ class Facebook
     $session = $this->validateSessionObject($session);
     $this->sessionLoaded = true;
     $this->session = $session;
-    
     if ($write_cookie) {
       $this->setCookieFromSession($session);
-    }
-    elseif($session && !$this->useCookieSupport())
-    {
-        $value      = '"' . http_build_query($session, null, '&') . '"';
-        $cookieName = $this->getSessionCookieName();
-        $_SESSION[$cookieName] = $value;
     }
     return $this;
   }
@@ -284,41 +277,25 @@ class Facebook
       }
 
       // try loading session from cookie if necessary
-      if ( !$session ) {
+      if (!$session && $this->useCookieSupport()) {
         $cookieName = $this->getSessionCookieName();
-        if( $this->useCookieSupport() && isset($_COOKIE[$cookieName])) {
-              $session = array();
-              parse_str(trim(
-                get_magic_quotes_gpc()
-                  ? stripslashes($_COOKIE[$cookieName])
-                  : $_COOKIE[$cookieName],
-                '"'
-              ), $session);
-              // write only if we need to delete a invalid session cookie
-              $write_cookie = empty($session);
-        }  
-        elseif( !$this->useCookieSupport() && isset($_SESSION[$cookieName]) ) {
-            $session = array();
-            parse_str(trim(
-                get_magic_quotes_gpc() ?
-                    stripslashes($_SESSION[$cookieName])
-                    : $_SESSION[$cookieName],
-                  '"'
-                ), 
-            $session);
-            // Write cookie will be false so it will be written to SESSION data
-            $write_cookie = false;
+        if (isset($_COOKIE[$cookieName])) {
+          $session = array();
+          parse_str(trim(
+            get_magic_quotes_gpc()
+              ? stripslashes($_COOKIE[$cookieName])
+              : $_COOKIE[$cookieName],
+            '"'
+          ), $session);
+          $session = $this->validateSessionObject($session);
+          // write only if we need to delete a invalid session cookie
+          $write_cookie = empty($session);
         }
-        
-        $session = $this->validateSessionObject($session);
       }
-      if( !$this->useCookieSupport() )
-      {
-        $write_cookie = false;
-      }
-      
+
       $this->setSession($session, $write_cookie);
     }
+
     return $this->session;
   }
 
@@ -526,7 +503,7 @@ class Facebook
     }
 
     $opts = self::$CURL_OPTS;
-    $opts[CURLOPT_POSTFIELDS] = $params;
+    $opts[CURLOPT_POSTFIELDS] = http_build_query($params, null, '&');
     $opts[CURLOPT_URL] = $url;
     curl_setopt_array($ch, $opts);
     $result = curl_exec($ch);
@@ -588,12 +565,7 @@ class Facebook
     }
 
     if (headers_sent()) {
-      // disable error log if we are running in a CLI environment
-      // @codeCoverageIgnoreStart
-      if (php_sapi_name() != 'cli') {
-        error_log('Could not set cookie. Headers already sent.');
-      }
-      // @codeCoverageIgnoreEnd
+      self::error_log('Could not set cookie. Headers already sent.');
 
     // ignore for code coverage as we will never be able to setcookie in a CLI
     // environment
@@ -626,12 +598,7 @@ class Facebook
         $this->getApiSecret()
       );
       if ($session['sig'] != $expected_sig) {
-        // disable error log if we are running in a CLI environment
-        // @codeCoverageIgnoreStart
-        if (php_sapi_name() != 'cli') {
-          error_log('Got invalid session signature in cookie.');
-        }
-        // @codeCoverageIgnoreEnd
+        self::error_log('Got invalid session signature in cookie.');
         $session = null;
       }
       // check expiry time
@@ -794,5 +761,21 @@ class Facebook
     $base_string .= $secret;
 
     return md5($base_string);
+  }
+
+  /**
+   * Prints to the error log if you aren't in command line mode. 
+   *
+   * @param String log message
+   */
+  protected static function error_log($msg) {
+    // disable error log if we are running in a CLI environment
+    // @codeCoverageIgnoreStart
+    if (php_sapi_name() != 'cli') {
+      error_log($msg);
+    }
+    // uncomment this if you want to see the errors on the page
+    // print 'error_log: '.$msg."\n";
+    // @codeCoverageIgnoreEnd
   }
 }

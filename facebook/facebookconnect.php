@@ -14,7 +14,11 @@
  * @link        http://github.com/amereservant/Wolf-CMS-Facebook-Plugin Facebook Plugin @ GitHub
  * @author      David Miles <david@amereservant.com>
  * @copyright   2010 David Miles
- * @version     1.0
+ * @version     1.0.1
+ * @TODO        Add a setting option to the Administrator panel whether or not
+ *              to automatically check Facebook to determine if the user IS logged
+ *              in after the session/cookie has expired.
+ *              See the {@link is_logged_in()} method's paramter for reference.
  */
 class FacebookConnect extends Facebook
 {
@@ -81,12 +85,19 @@ class FacebookConnect extends Facebook
     public static $usr_session;
     
    /**
-    * @staticvar    array
+    * @staticvar    array       Facebook user's information, such as name, etc.
+    *                           This is the FACEBOOK user info, not the local user info.
     * @access       public
-    * @TODO         Compare this value/usage to {@link $usr_session}.
-    *               This may be a duplicate that can be removed.
     */
     public static $user_info;
+    
+   /**
+    * @staticvar    bool        Whether or not the user is logged in.
+    * @access       public
+    * @TODO         This value needs to be tested and make sure it is set properly
+    *               before relying on it's value because it could be wrong.
+    */
+    public static $logged_in = false;
     
    /**
     * @staticvar    array       All of the new user form keys.
@@ -109,9 +120,9 @@ class FacebookConnect extends Facebook
     * @param    array
     * @access   public
     */
-    public function __construct($array)
+    public function __construct( $array )
     {
-        parent::__construct($array);
+        parent::__construct( $array );
     }
    
    /**
@@ -203,6 +214,10 @@ class FacebookConnect extends Facebook
         // Make sure a UserID has been set
         if( self::$uid )
         {
+            // Get it and merge it if not
+            $user_info = self::get_user_info();
+            $facebook->setSession( $user_info, $facebook->useCookieSupport(), true );
+            
             /*
              * See if user is a new Facebook user to this site and if so, 
              * redirect them to the new user page if 'User Configures Account' is
@@ -224,7 +239,7 @@ class FacebookConnect extends Facebook
         }
 
         // If user isn't logged in ...
-        if(!$logged_in) 
+        if( !$logged_in ) 
         {
             // Clear ALL session data ( clears cookies & PHP session )
             $facebook->setSession(null, $facebook->useCookieSupport());
@@ -266,8 +281,9 @@ class FacebookConnect extends Facebook
     * @static
     * @access   public
     */
-    public static function is_logged_in($check_facebook=false)
+    public static function is_logged_in( $check_facebook=false )
     {
+
         // Get FacebookConnect object
         $facebook = self::get_instance();
 
@@ -279,18 +295,18 @@ class FacebookConnect extends Facebook
             return $return;
         }
         // Get user session details
-        $session           = $facebook->getSession();
+        $session           = $facebook->getSession( false );
         self::$usr_session = $session;
 
-        $logged_in = false;
+        self::$logged_in = false;
         
-        if($session)
+        if( $session )
         {
             // Get UserID
             self::$uid = $facebook->getUser();
             
             // Check if the user's session has expired
-            $logged_in = !$facebook->check_expired_session($session['expires']);
+            self::$logged_in = !$facebook->check_expired_session( $session['expires'] );
             
             if( $check_facebook === true )
             {
@@ -302,11 +318,11 @@ class FacebookConnect extends Facebook
                 
                 // If $me doesn't return false, it will return JSON data, 
                 // so we type cast as boolean
-                $logged_in = (bool) $me;
+                self::$logged_in = (bool) $me;
             }
         }
         
-        if( !$logged_in ) 
+        if( !self::$logged_in ) 
         { 
             $return['error']     = false;
             $return['logged_in'] = false;
@@ -314,6 +330,8 @@ class FacebookConnect extends Facebook
         } 
         else 
         { 
+            self::$user_info   = $facebook->getSession( true );
+        
             if( !AuthUser::isLoggedIn() )
             {
                 $id = self::db_select_one('facebook_users', "uid='". self::$uid ."'", 'wolf_uid');
@@ -336,7 +354,7 @@ class FacebookConnect extends Facebook
     * @return   bool                    True if the cookie has expired, false otherwise
     * @access   protected
     */
-    protected function check_expired_session($expires)
+    protected function check_expired_session( $expires )
     {
         if( $expires < time() )
         {
@@ -395,21 +413,17 @@ class FacebookConnect extends Facebook
     */
     public static function get_user_info( $always_make_remote_call = false )
     {
-        // Check if user is logged in
-        $logged_in = self::is_logged_in();
-        if( $logged_in['error'] === true || $logged_in['logged_in'] === false )
-        {
-            return false;
-        }
-
+        $facebook = self::get_instance();
+        
+        self::$user_info = $facebook->getSession( true );
+        
         // Return data in the $user_info property if remote call isn't required
         if( self::$user_info && !$always_make_remote_call )
         {
             return self::$user_info;
         }
         
-        $facebook = self::get_instance();
-        self::$usr_session = $facebook->getSession();
+        self::$usr_session = $facebook->getSession( false );
 
         // Session based API call
         if( self::$usr_session )
@@ -444,7 +458,7 @@ class FacebookConnect extends Facebook
     * @return   bool                    true if they do exist, false otherwise
     * @access   public
     */
-    public function check_user_exists($user, $usertbl='facebook')
+    public function check_user_exists( $user, $usertbl='facebook' )
     {
         self::get_db_instance();
         
@@ -483,7 +497,7 @@ class FacebookConnect extends Facebook
     * @access   public
     * @static
     */
-    public static function add_new_user($post=NULL)
+    public static function add_new_user( $post=NULL )
     {
         $facebook = self::get_instance();
         
@@ -686,7 +700,7 @@ class FacebookConnect extends Facebook
                 unset($user[$key]);
             }
         }
-        catch(Exception $e)
+        catch( Exception $e )
         {
             self::handleException($e);
             return false;
@@ -714,7 +728,7 @@ class FacebookConnect extends Facebook
     * @access   protected
     * @throws   Exception
     */
-    protected function add_user_to_wolf($user)
+    protected function add_user_to_wolf( $user )
     {
         // Verify param is valid, throw exception if not
         // ( Every field isn't checked, just some of the ones that should be present )
@@ -725,7 +739,7 @@ class FacebookConnect extends Facebook
                 throw new Exception("Method `add_user_to_wolf` was provided an invalid" . 
                     " user data array.");
             }
-            catch(Exception $e)
+            catch( Exception $e )
             {
                 self::handleException($e);
                 return false;
@@ -760,7 +774,7 @@ class FacebookConnect extends Facebook
                 throw new Exception(" Add user to Wolf `users` table failed!");
             }
         }
-        catch(Exception $e)
+        catch( Exception $e )
         {
             self::handleException($e);
             return false;
@@ -784,7 +798,7 @@ class FacebookConnect extends Facebook
     * @access   protected
     * @throws   Exception
     */
-    protected function validate_new_user_data($post)
+    protected function validate_new_user_data( $post )
     {
         // All keys that should be in the new_user_form $_POST data.
         // (Used for verification)
@@ -861,7 +875,7 @@ class FacebookConnect extends Facebook
         $are_empties    = false;
         
         // Check if required fields are empty
-        foreach($new_user_required_keys as $key => $val)
+        foreach( $new_user_required_keys as $key => $val )
         {
             if( empty($post[$key]) && $post[$key] !== '0' )
             {
@@ -900,7 +914,7 @@ class FacebookConnect extends Facebook
     * @return   mixed           User info array on success, false if not
     * @access   private
     */
-    private function verify_wolf_user($user=array())
+    private function verify_wolf_user( $user=array() )
     {
         try
         {
@@ -941,7 +955,7 @@ class FacebookConnect extends Facebook
     * @access   private
     * @throws   Exception
     */
-    private function login_wolf_user($user)
+    private function login_wolf_user( $user )
     {
         try
         {
@@ -957,7 +971,7 @@ class FacebookConnect extends Facebook
                 throw new Exception("User could not be found!");
             }
         }
-        catch(Exception $e)
+        catch( Exception $e )
         {
             self::handleException($e);
             return false;
@@ -975,7 +989,7 @@ class FacebookConnect extends Facebook
                 $time, '/', null, 
                 (isset($_ENV['SERVER_PROTOCOL']) && ((strpos($_ENV['SERVER_PROTOCOL'],'https') || strpos($_ENV['SERVER_PROTOCOL'],'HTTPS')))));
         }
-        AuthUser::setInfos($user);
+        AuthUser::setInfos( $user );
         return true;
     }
     
@@ -1058,7 +1072,7 @@ class FacebookConnect extends Facebook
                 }
             }
         }
-        catch(Exception $e)
+        catch( Exception $e )
         {
             self::handleException($e);
             return false;
@@ -1081,7 +1095,7 @@ class FacebookConnect extends Facebook
                 throw new Exception($error);
             }
         }
-        catch(Exception $e)
+        catch( Exception $e )
         {
             self::handleException($e);
             return false;
@@ -1108,7 +1122,7 @@ class FacebookConnect extends Facebook
     * @static
     * @TODO     Change this to use bind params instead.
     */
-    protected static function db_select($table, $where=null, $col=null)
+    protected static function db_select( $table, $where=null, $col=null )
     {
         // Make sure $pdo property is set
         self::get_db_instance();
@@ -1151,7 +1165,7 @@ class FacebookConnect extends Facebook
     * @access   public
     * @static
     */
-    public static function db_select_one($table, $where, $col=null)
+    public static function db_select_one( $table, $where, $col=null )
     {
         // Check if the two required parameters aren't empty
         if( empty($table) || empty($where) )
@@ -1164,7 +1178,7 @@ class FacebookConnect extends Facebook
         if( !is_object($stmt) ) { return false; }
         
         // Return associative array
-        return $stmt->fetch(PDO::FETCH_ASSOC);
+        return $stmt->fetch( PDO::FETCH_ASSOC );
     }
     
    /**
@@ -1180,7 +1194,7 @@ class FacebookConnect extends Facebook
     * @access   public
     * @static
     */
-    public static function db_select_all($table, $where=null, $col=null)
+    public static function db_select_all( $table, $where=null, $col=null )
     {
         $return = array();
         
@@ -1209,7 +1223,7 @@ class FacebookConnect extends Facebook
     * @return   string      String with the logout URL
     * @access   public
     */
-    public function getLogoutUrl($params=array()) 
+    public function getLogoutUrl( $params=array() ) 
     {
         $session = $this->getSession();
         return $this->getUrl(
@@ -1223,6 +1237,18 @@ class FacebookConnect extends Facebook
         );
     }
     
+   /**
+    * Logout User
+    *
+    * This destroys both the COOKIE data and SESSION data to log the user out.
+    * It also calls Wolf's AuthUser::logout() method since I couldn't get the
+    * Wolf user account to logout properly without it.
+    *
+    * @param    void
+    * @return   void
+    * @access   public
+    * @static
+    */
     public static function user_logout()
     {
         // Check if the cookie is set
@@ -1230,7 +1256,6 @@ class FacebookConnect extends Facebook
         {
             foreach($_COOKIE as $key => $blah)
             {
-                echo $key;
                 setcookie( $key, false, $_SERVER['REQUEST_TIME'] - 3600, '/', 
                 (isset($_ENV['SERVER_PROTOCOL']) && (strpos($_ENV['SERVER_PROTOCOL'],'https') 
                 || strpos($_ENV['SERVER_PROTOCOL'],'HTTPS'))) );
@@ -1242,9 +1267,9 @@ class FacebookConnect extends Facebook
         if( ini_get("session.use_cookies") )
         {
             $params = session_get_cookie_params();
-            setcookie(session_name(), '', time() - 3600,
-                $params['path'], $params['domain'], 
-                $params['secure'], $params['httponly']);
+            setcookie( session_name(), '', time() - 3600,
+                       $params['path'], $params['domain'], 
+                       $params['secure'], $params['httponly'] );
         }
         // Destroy the session
         session_destroy();
@@ -1252,10 +1277,23 @@ class FacebookConnect extends Facebook
         redirect(URL_PUBLIC);
     }
     
+   /**
+    * Generate Random Password
+    *
+    * This is used to generate a random alpha-numeric password based on the length given.
+    * It is used when creating new Wolf user accounts and the user didn't
+    * specify a password.  This keeps the user's wolf account from being vulnerable
+    * from unauthorized logins.
+    *
+    * @param    int     $length     The length of the password to be generated
+    * @return   string              The new alpha-numeric password
+    * @access   public
+    * @static
+    */
     public static function generate_password( $length=10 )
     {
         $val = '';
-        for ($i=0; $i<$length; $i++) 
+        for ( $i=0; $i<$length; $i++ ) 
         {
             $d=rand(1,30)%2;
             $val .= $d ? (rand(10,99)%2 ? mb_strtolower(chr(rand(65,90))):
@@ -1263,7 +1301,202 @@ class FacebookConnect extends Facebook
         }
         return $val;
     }
-   
+    
+   /**
+    * Set the Session
+    *
+    * This overrides the parent class method so that PHP $_SESSION can be used if
+    * cookie support is disabled.  It also allows for other data to be appended
+    * to the end of the $_SESSION or $_COOKIE data, such as the user's information.
+    *
+    * @param    array   $session        the facebook user session data or data
+    *                                   to be appended if the $append parameter
+    *                                   is set to 'true'.
+    * @param    bool    $write_cookie   indicate if a cookie should be written. 
+    *                                   This value is ignored if cookie support 
+    *                                   has been disabled.
+    * @param    bool    $user           Whether or not the value of $session should
+    *                                   be written to the user cookie/session data.
+    */
+    public function setSession( $session=null, $write_cookie=true, $user=false ) 
+    {
+        if( !$user )
+        {
+            $session = $this->validateSessionObject( $session );
+            $this->sessionLoaded = true;
+            $this->session = $session;
+        }
+        else
+        {
+            self::$user_info = $session;
+        }
+        
+        if( $write_cookie ) 
+        {
+            $this->setCookieFromSession( $session, $user );
+        }
+        // Add to PHP SESSION instead
+        elseif( $session && !$this->useCookieSupport() )
+        {
+            $value      = '"' . http_build_query($session, null, '&') . '"';
+            $cookieName = ( $user ? $this->getUserCookieName() : $this->getSessionCookieName() );
+            $_SESSION[$cookieName] = $value;
+        }
+        return $this;
+    }
+     
+  /**
+   * Get the session object. This method overrides the parent classes' method
+   * so that user data sessions can be retrieved as well.
+   *
+   * This will automatically look for a signed session sent via the Cookie or 
+   * Query Parameters if needed.
+   *
+   * @param     bool    $user   Should this method retrieve the user's information?
+   * @return    array           The session data
+   * @access    public
+   */
+    public function getSession( $user=false )
+    {
+        if( !$this->sessionLoaded || $user ) 
+        {
+            $session = null;
+            $write_cookie = true;
+
+            // try loading session from $_REQUEST
+            if( isset($_REQUEST['session']) && !$user )
+            {
+                $session = json_decode(
+                    get_magic_quotes_gpc()
+                    ? stripslashes($_REQUEST['session'])
+                    : $_REQUEST['session'],
+                    true
+                );
+                $session = $this->validateSessionObject( $session );
+            }
+
+            // try loading session from cookie if necessary
+            if( !$session ) 
+            {
+                $cookieName = ( $user ? $this->getUserCookieName() : $this->getSessionCookieName() );
+                
+                // Get data from COOKIE
+                if( $this->useCookieSupport() && isset($_COOKIE[$cookieName]) ) 
+                {
+                    $session = array();
+                    parse_str(trim(
+                        get_magic_quotes_gpc()
+                        ? stripslashes($_COOKIE[$cookieName])
+                        : $_COOKIE[$cookieName],
+                        '"'
+                    ), $session);
+                    // write only if we need to delete a invalid session cookie
+                    $write_cookie = empty( $session );
+                }  
+                // Get data from SESSION instead
+                elseif( !$this->useCookieSupport() && isset($_SESSION[$cookieName]) )
+                {
+                    $session = array();
+                    parse_str(trim(
+                        get_magic_quotes_gpc() ?
+                            stripslashes($_SESSION[$cookieName])
+                            : $_SESSION[$cookieName],
+                          '"'
+                        ), 
+                    $session);
+                    // Write cookie will be false so it will be written to SESSION data
+                    $write_cookie = false;
+                }
+                
+                $session = ( !$user ? $this->validateSessionObject($session) : $session );
+            }
+            
+            if( !$this->useCookieSupport() )
+            {
+                $write_cookie = false;
+            }
+
+            $this->setSession( $session, $write_cookie, $user );
+        }
+        return ( $user ? self::$user_info : $this->session );
+    }
+    
+   /**
+    * Set a Cookie based on the _passed in_ session. 
+    * This method overrides the parent method to add the ability to also create
+    * user data cookies.
+    * It does not use the currently stored session -- you need to explicitly pass it in.
+    *
+    * @param    array   $session    the session or user data to use for setting the cookie
+    * @param    bool    $user       Determines if the cookie to be created should
+    *                               be for the user data or session data.
+    * @return   void
+    * @access   protected
+    */
+    protected function setCookieFromSession( $session=null, $user=false ) 
+    {
+        if( !$this->useCookieSupport() ) { return; }
+
+        $cookieName = ( $user ? $this->getUserCookieName() : $this->getSessionCookieName() );
+        $value = 'deleted';
+        $expires = time() - 3600;
+        $domain = $this->getBaseDomain();
+        
+        if( $session ) 
+        {
+            $value = '"' . http_build_query( $session, null, '&' ) . '"';
+            
+            if( isset($session['base_domain']) ) 
+            {
+                $domain = $session['base_domain'];
+            }
+            $expires = isset($session['expires']) ? $session['expires'] : $this->session['expires'];
+        }
+
+        // prepend dot if a domain is found
+        if( $domain ) 
+        {
+            $domain = '.' . $domain;
+        }
+
+        // if an existing cookie is not set, we dont need to delete it
+        if( $value == 'deleted' && empty($_COOKIE[$cookieName]) )
+        {
+            return;
+        }
+
+        if( headers_sent() )
+        {
+            // disable error log if we are running in a CLI environment
+            // @codeCoverageIgnoreStart
+            if( php_sapi_name() != 'cli' )
+            {
+                error_log('Could not set cookie. Headers already sent.');
+            }
+            // @codeCoverageIgnoreEnd
+
+            // ignore for code coverage as we will never be able to setcookie in a CLI
+            // environment
+            // @codeCoverageIgnoreStart
+        } 
+        else 
+        {
+            setcookie( $cookieName, $value, $expires, '/', $domain );
+        }
+        // @codeCoverageIgnoreEnd
+    }
+    
+   /**
+    * The name of the Cookie that contains the user data.
+    *
+    * @param    void
+    * @return   string      The user cookie name
+    * @access   protected
+    */
+    protected function getUserCookieName() {
+        return 'fbuser_' . $this->getAppId();
+    }
+     
    /**
     * Copied from AuthUser Model
     *
@@ -1275,20 +1508,32 @@ class FacebookConnect extends Facebook
     * @return   string          string with cookie data
     * @access   protected
     */ 
-    static protected function bakeUserCookie($time, $user) {
+    static protected function bakeUserCookie( $time, $user ) {
         return 'exp='.$time.'&id='.$user->id.'&digest='.md5($user->username.$user->password);
     }
     
-    private static function handleException($e)
+   /**
+    * Handle Caught Exceptions
+    *
+    * This method is called by this class when an Exception is caught and 
+    * determines how the Exception is handled based on the value of DEBUG, which
+    * is set in the Wolf config.php file.
+    *
+    * @param    object  $e  Exception object
+    * @return   void
+    * @access   private
+    * @static
+    */
+    private static function handleException( $e )
     {
-        if(DEBUG === true) 
+        if( DEBUG === true ) 
         {
             echo $e->getMessage();
         }
         else
         {
-            error_log($e->getMessage());
+            error_log( $e->getMessage() );
         }
-        return false;
+        return;
     }
 }

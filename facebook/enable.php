@@ -57,15 +57,15 @@ $row = FacebookConnect::db_select_one( 'plugin_settings', "name='fb_snippet_crea
 if( !$row || $row['value'] !== '1' )
 {
     $snippet = <<<______EOD
-    <?php if( \$fb_login = fb_login() ) {; 
+<?php if( \$fb_login = $this->fb_login ) {; 
     \$logged_in = \$fb_login['logged_in']; ?>
     <p>
         <a href="<?php echo \$fb_login['link']; ?>" title="<?php echo(\$logged_in ? 'Logout':'Login With Facebook'); ?>">
             <img src="<?php echo \$fb_login['image']; ?>" alt="<?php echo(\$logged_in ? 'Facebook Logout':'Facebook Connect'); ?>" />
         </a>
     </p>
-    <?php } // End of if 
-    ?>
+<?php } // End of if 
+?>
 ______EOD;
 
     $values = array(
